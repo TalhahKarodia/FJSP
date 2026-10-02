@@ -402,7 +402,7 @@ def main():
         n_runs_per_instance=30,    # As per proposal
         population_size=100,        # As per proposal
         generations=200,           # As per proposal
-        test_all=True,             # Test ALL instances
+        test_all=False,             # Test ALL instances
         verbose=False              # Quiet mode for speed
     )
     
