@@ -5,7 +5,7 @@ This script runs experiments on FJSSP-W instances using the GA with FPC.
 Includes statistical analysis (Mann-Whitney U test, Friedman test) as per proposal.
 """
 
-import sys
+import sys, concurrent.futures
 import os
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
@@ -212,8 +212,8 @@ def run_all_instances(
     
     # Filter instances
     if not test_all:
-        instance_files = instance_files[:5]
-        print(f"Running on {len(instance_files)} instances (first 5 for testing)")
+        instance_files = instance_files[1:2] # filter instances to 1 for testing
+        print(f"Running on {len(instance_files)} instances (first 1 for testing)")
     else:
         print(f"Running on ALL {len(instance_files)} instances")
     
@@ -232,25 +232,24 @@ def run_all_instances(
         # Run multiple times
         instance_results = []
         instance_makespans = []
+
+        print(f"Starting {n_runs_per_instance} independent parallel runs...")
         
-        for run in range(n_runs_per_instance):
-            if verbose:
-                print(f"\nRun {run+1}/{n_runs_per_instance}")
+        #package the arguments for all 30 runs
+        run_args = [
+            (run, instance_path, instance_name, population_size, generations, 42 + run, verbose)
+            for run in range(n_runs_per_instance)
+        ]
+        
+        #execute the 30 independent GAs simultaneously using processes
+        with concurrent.futures.ProcessPoolExecutor() as executor:
+            completed_runs = list(executor.map(run_worker, run_args))
             
-            random_seed = 42 + run
-            
-            result = run_experiment(
-                instance_path,
-                instance_name,
-                population_size=population_size,
-                generations=generations,
-                random_seed=random_seed,
-                verbose=verbose
-            )
-            result['run'] = run + 1
+        # unpack the results
+        for result in completed_runs:
             instance_results.append(result)
             instance_makespans.append(result['best_makespan'])
-        
+            print(f"Run {result['run']} best makespan: {result['best_makespan']}")
         # Store for statistical tests
         all_makespans[instance_name] = instance_makespans
         
@@ -274,7 +273,7 @@ def run_all_instances(
             'average': avg_makespan,
             'worst': worst_makespan,
             'std': std_makespan,
-            'runs': n_runs_per_instance,
+            'runs': n_runs_per_instance,    
             'population_size': population_size,
             'generations': generations,
             'detailed_results': instance_results
@@ -367,6 +366,20 @@ def run_all_instances(
     
     return all_results, statistical_results
 
+def run_worker(args):
+    """adapts run_experiment function with python's multiprocessor library"""
+    run_idx, instance_path, instance_name, pop_size, gens, seed, verbose = args
+
+    result = run_experiment(
+        instance_path, 
+        instance_name,
+        population_size=pop_size,
+        generations=gens,
+        random_seed=seed,
+        verbose=verbose
+    )
+    result['run'] = run_idx+1
+    return result
 
 def main():
     """Main entry point for experiments."""
