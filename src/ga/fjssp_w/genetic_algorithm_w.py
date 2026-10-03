@@ -7,7 +7,7 @@ crossover operator that maintains valid machine-worker assignments during
 recombination.
 """
 
-import sys
+import sys, concurrent.futures, copy
 import os
 sys.path.append(os.path.join(os.path.dirname(__file__), '../..'))
 
@@ -210,8 +210,8 @@ class FJSSPW_GA:
                     child2['worker_assignment'][i] = parent1['worker_assignment'][pos_p1]
         
         # Step 3: Repair any infeasible assignments
-        child1 = self.repair_chromosome(child1)
-        child2 = self.repair_chromosome(child2)
+        child1 = self.repair_chromosome_optimised(child1)
+        child2 = self.repair_chromosome_optimised(child2)
         
         return child1, child2
     
@@ -251,7 +251,46 @@ class FJSSPW_GA:
                     chromosome['worker_assignment'][op_idx] = best_pair[1]
         
         return chromosome
-    
+    def repair_chromosome_optimised(self, chromosome) -> Dict:
+        """repair infeasible machine-worker assignments"""
+        n_ops = self.decoder.n_operations
+
+        if not hasattr(self, '_feasible_pairs_cache'): # initialise caches if they don't exist
+            self._feasible_pairs_cache = {}
+            self._best_pair_cache = {}
+        for op_idx in range(n_ops):
+            machine = chromosome['machine_assignment'][op_idx]
+            worker = chromosome['worker_assignment'][op_idx]
+
+            if op_idx not in self._feasible_pairs_cache:
+                pairs = []
+                for m in range(self.decoder.n_machines):
+                    for w in self.decoder.get_eligible_workers(op_idx, m):
+                        pairs.append((m, w))
+                self._feasible_pairs_cache[op_idx] = pairs
+
+                if pairs:
+                    best = min(pairs, key= lambda p: self.decoder.get_processing_time(op_idx, p[0], p[1]))
+                    self._best_pair_cache[op_idx] = best
+            feasible_pairs = self._feasible_pairs_cache[op_idx]
+
+            if machine is None or worker is None:
+                if feasible_pairs:
+                    m, w = random.choice(feasible_pairs)
+                    chromosome['machine_assignment'][op_idx] = m
+                    chromosome['worker_assignment'][op_idx] = w
+                continue
+
+            # check feasibility and perform repair 
+            if feasible_pairs:
+                best_pair = self._best_pair_cache[op_idx]
+                chromosome['machine_assignment'][op_idx] = best_pair[0]
+                chromosome['worker_assignment'][op_idx] = best_pair[1]
+
+        return chromosome
+
+
+                
     def mutation(self, chromosome: Dict) -> Dict:
         """Apply mutation to a chromosome."""
         child = copy.deepcopy(chromosome)
@@ -281,7 +320,87 @@ class FJSSPW_GA:
                     child['worker_assignment'][op_idx] = new_w
         
         return child
-    
+
+    def evolve_parallel(self) -> Dict:
+        """Run GA using parallel evaluation"""
+
+        with concurrent.futures.ProcessPoolExecutor() as executor:
+            self.initialize_population_parallel()
+            best_overall = copy.deepcopy(self.best_solution)
+            best_overall_makespan = self.best_makespan
+
+            print(f"Initial best makespan: {self.best_makespan}")
+
+            # Evolution
+            for generation in range(self.generations):
+                selected = self.selection()
+
+                new_population = []
+                new_fitness = []
+
+                # Keep elites
+                sorted_indeces = sorted(range(len(self.fitness_values)), key=lambda i: self.fitness_values[i])
+                elites = sorted_indeces[:self.elite_size]
+                for idx in elites:
+                    new_population.append(copy.deepcopy(self.population[idx]))
+                    new_fitness.append(self.fitness_values[idx])
+
+                # generate offspring
+                children = []
+                while(len(new_population)+len(children)) < self.population_size:
+                    p1 = random.choice(selected)
+                    p2 = random.choice(selected)
+
+                    if random.random() < self.crossover_rate:
+                        child1, child2 = self.feasibility_preserving_crossover(p1, p2)
+                    else:
+                        child1 = copy.deepcopy(p1)
+                        child2 = copy.deepcopy(p2)
+
+                    child1 = self.mutation(child1)
+                    child2 = self.mutation(child2)
+                    children.append(child1)
+
+                    if(len(new_population)+len(children)) < self.population_size:
+                        children.append(child2)
+                # map evaluate function accross all new children
+                children_fitness = list(executor.map(self.evaluate, children))
+
+                #combine elites with newly evaluated children
+                new_population.extend(children)
+                new_fitness.extend(children_fitness)
+
+                # replace population
+                self.population = new_population
+                self.fitness_values = new_fitness
+
+                # update best
+                best_idx = min(range(len(self.fitness_values)), key=lambda i: self.fitness_values[i])
+                if self.fitness_values[best_idx] < self.best_fitness:
+                    self.best_fitness = self.fitness_values[best_idx]
+                    self.best_solution = copy.deepcopy(self.population[best_idx])
+                    self.best_makespan = self.best_fitness
+
+
+                # track history
+                self.history['best_makespan'].append(self.best_makespan)
+                self.history['avg_makespan'].append(sum(self.fitness_values)/len(self.fitness_values))
+                self.history['worst_makespan'].append(max(self.fitness_values))
+
+                if (generation + 1) % 20 == 0:
+                    avg_fitness = sum(self.fitness_values)/len(self.fitness_values)
+                    print(f"Gen {generation+1}: Best={self.best_makespan:.1f}, Avg={avg_fitness:.1f}")
+            
+            print(f"Final best makespan: {self.best_makespan}")
+            
+            return {
+                'best_solution': self.best_solution,
+                'best_makespan': self.best_makespan,
+                'history': self.history
+            }
+
+
+
     def evolve(self) -> Dict:
         """Run the genetic algorithm."""
         # Initialize
@@ -368,7 +487,28 @@ class FJSSPW_GA:
         if self.best_solution is None:
             return None
         return self.decoder.decode(self.best_solution)
+    
+    def evaluate_population(self):
+        """Evaluate the entire population using a process pool"""
 
+        # spin pool of processes and evaluate chromosomes 
+        with concurrent.futures.ProcessPoolExecutor() as executor:
+            self.fitness_values = list(executor.map(self.evaluate, self.population, chunksize=25))
+
+    def initialize_population_parallel(self):
+        """Initialises population and evaluates fitness in parallel using process pool"""
+        self.population = []
+        for _ in range(self.population_size):
+            chromosome = self.decoder.create_random_chromosome()
+            self.population.append(chromosome)
+
+            self.evaluate_population()
+
+            for i, fitness in enumerate(self.fitness_values):
+                if fitness < self.best_fitness:
+                    self.best_fitness = fitness
+                    self.best_solution = copy.deepcopy(self.population[i])
+                    self.best_makespan = fitness
 
 def main():
     """Test the GA on a small instance."""
@@ -402,7 +542,8 @@ def main():
     )
     
     # Run GA
-    result = ga.evolve()
+    # result = ga.evolve()
+    result = ga.evolve_parallel()
     
     print(f"\nBest makespan found: {result['best_makespan']}")
     
