@@ -1,15 +1,16 @@
 """
 Genetic Algorithm for FJSSP-W with Feasibility-Preserving Crossover (FPC)
 
-This module implements a Genetic Algorithm for the Flexible Job Shop Scheduling
-Problem with Worker Flexibility (FJSSP-W) featuring a feasibility-preserving
-crossover operator that maintains valid machine-worker assignments during
-recombination.
+Fitness modes:
+- 'deterministic': minimises nominal makespan (Scenario 1)
+- 'uncertainty':   minimises mean makespan across n_scenarios (Scenario 2)
 
-FIXES APPLIED vs original:
-- Bug #1: Per-instance RNG (self.rng) replaces global random.seed()
-- Bug #2: repair_chromosome_optimised() only repairs INFEASIBLE assignments
-- Bug #3: History tracking records per-generation values, not cumulative
+Optional balance penalty: adds a coefficient-of-variation term on worker
+loads, weighted by `balance_weight`. Used to break makespan ties and
+satisfy the competition's tie-breaker criterion.
+
+FEV counting follows competition rules: 1 FEV in deterministic mode,
+n_scenarios FEVs in uncertainty mode (each scenario evaluation counts).
 """
 
 import sys, copy
@@ -18,18 +19,23 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '../..'))
 
 import random
 from typing import List, Dict, Tuple, Optional
+from collections import defaultdict
 
 from ga.fjssp_w.decoder_w import FJSSPWDecoder
+from ga.fjssp_w.uncertainty_sim import (
+    create_seeded_uncertainty_vector,
+    simulate_one_scenario,
+)
 
 
 class FJSSPW_GA:
     """
-    Genetic Algorithm for FJSSP-W with Feasibility-Preserving Crossover.
+    Genetic Algorithm for FJSSP-W.
 
-    Chromosome structure:
-    - machine_assignment: list of machine indices (length = n_operations)
-    - worker_assignment: list of worker indices (length = n_operations)
-    - operation_sequence: list of operation indices (length = n_operations)
+    Chromosome:
+        machine_assignment: list[int], length = n_operations
+        worker_assignment:  list[int], length = n_operations
+        operation_sequence: list[int], length = n_operations
     """
 
     def __init__(
@@ -41,11 +47,38 @@ class FJSSPW_GA:
         mutation_rate: float = 0.1,
         tournament_size: int = 3,
         elite_size: int = 2,
-        random_seed: Optional[int] = None
+        random_seed: Optional[int] = None,
+        fitness_mode: str = 'deterministic',
+        n_scenarios: int = 5,
+        uncertainty_seed: Optional[int] = None,
+        scenario_seed: Optional[int] = None,
+        balance_weight: float = 0.0,
     ):
-        # FIX #1: per-instance RNG (not global random.seed)
+        # Per-instance RNG
         self.rng = random.Random(random_seed)
         self.seed = random_seed
+
+        # Fitness configuration
+        self.fitness_mode = fitness_mode
+        self.n_scenarios = n_scenarios
+        self.fev_count = 0
+        self.balance_weight = balance_weight
+
+        # Uncertainty parameters (fixed per instance)
+        self.uncertainty_vector = None
+        self.scenario_rng = None
+        if fitness_mode == 'uncertainty':
+            unc_seed = (
+                uncertainty_seed if uncertainty_seed is not None
+                else (random_seed if random_seed is not None else 42)
+            )
+            self.uncertainty_vector = create_seeded_uncertainty_vector(
+                instance_data['n_workers'], seed=unc_seed
+            )
+            self.scenario_rng = random.Random(
+                scenario_seed if scenario_seed is not None
+                else (random_seed if random_seed is not None else 0)
+            )
 
         self.decoder = FJSSPWDecoder(instance_data)
         self.instance_data = instance_data
@@ -66,16 +99,19 @@ class FJSSPW_GA:
         self.history = {
             'best_makespan': [],
             'avg_makespan': [],
-            'worst_makespan': []
+            'worst_makespan': [],
+            'best_balance_cv': [],
         }
 
+    # ------------------------------------------------------------------
+    # Population initialisation
+    # ------------------------------------------------------------------
+
     def initialize_population(self):
-        """Create initial random population."""
         self.population = []
         self.fitness_values = []
 
         for _ in range(self.population_size):
-            # FIX #1: pass self.rng through to decoder
             chromosome = self.decoder.create_random_chromosome(self.rng)
             self.population.append(chromosome)
             fitness = self.evaluate(chromosome)
@@ -87,16 +123,66 @@ class FJSSPW_GA:
                 self.best_solution = copy.deepcopy(self.population[i])
                 self.best_makespan = fitness
 
+    # ------------------------------------------------------------------
+    # Fitness evaluation
+    # ------------------------------------------------------------------
+
     def evaluate(self, chromosome: Dict) -> float:
-        """Evaluate a chromosome (minimisation)."""
-        schedule = self.decoder.decode(chromosome)
-        return schedule['makespan']
+        """
+        Evaluate chromosome:
+          - Deterministic mode: nominal makespan.
+          - Uncertainty mode:   mean makespan across n_scenarios.
+          - Optional balance penalty applied as `base * (1 + λ * CV)`.
+        """
+        if self.fitness_mode == 'deterministic':
+            self.fev_count += 1
+            schedule = self.decoder.decode(chromosome)
+            base = schedule['makespan']
+        else:
+            self.fev_count += self.n_scenarios
+            total = 0.0
+            for _ in range(self.n_scenarios):
+                mk = simulate_one_scenario(
+                    chromosome, self.instance_data, self.decoder,
+                    self.uncertainty_vector, self.scenario_rng,
+                )
+                total += mk
+            base = total / self.n_scenarios
+
+        if self.balance_weight > 0:
+            penalty = self._worker_balance_cv(chromosome)
+            return base * (1.0 + self.balance_weight * penalty)
+        return base
+
+    def _worker_balance_cv(self, chromosome: Dict) -> float:
+        """Coefficient of variation of worker loads (lower = more balanced)."""
+        d = self.instance_data['durations']
+        m_assign = chromosome['machine_assignment']
+        w_assign = chromosome['worker_assignment']
+
+        loads = defaultdict(float)
+        for op_idx in range(len(m_assign)):
+            m = m_assign[op_idx]
+            w = w_assign[op_idx]
+            dur = d[op_idx][m][w]
+            if dur > 0:
+                loads[w] += dur
+
+        n_workers = self.decoder.n_workers
+        values = [loads.get(w, 0.0) for w in range(n_workers)]
+        mean_load = sum(values) / len(values)
+        if mean_load == 0:
+            return 0.0
+        variance = sum((v - mean_load) ** 2 for v in values) / len(values)
+        return (variance ** 0.5) / mean_load
+
+    # ------------------------------------------------------------------
+    # Selection
+    # ------------------------------------------------------------------
 
     def selection(self) -> List[Dict]:
-        """Tournament selection."""
         selected = []
         for _ in range(self.population_size):
-            # FIX #1: self.rng
             tournament_indices = self.rng.sample(
                 range(self.population_size), self.tournament_size
             )
@@ -104,32 +190,27 @@ class FJSSPW_GA:
             selected.append(copy.deepcopy(self.population[best_idx]))
         return selected
 
-    def feasibility_preserving_crossover(
-        self,
-        parent1: Dict,
-        parent2: Dict
-    ) -> Tuple[Dict, Dict]:
-        """
-        Feasibility-Preserving Crossover (FPC) operator.
+    # ------------------------------------------------------------------
+    # Crossover
+    # ------------------------------------------------------------------
 
-        Step 1: Order crossover (OX) on operation sequence
-        Step 2: Inherit machine-worker assignments from parents
-        Step 3: Repair infeasible assignments
-        """
+    def feasibility_preserving_crossover(
+        self, parent1: Dict, parent2: Dict
+    ) -> Tuple[Dict, Dict]:
         n_ops = self.decoder.n_operations
 
         child1 = {
             'machine_assignment': [None] * n_ops,
             'worker_assignment': [None] * n_ops,
-            'operation_sequence': [None] * n_ops
+            'operation_sequence': [None] * n_ops,
         }
         child2 = {
             'machine_assignment': [None] * n_ops,
             'worker_assignment': [None] * n_ops,
-            'operation_sequence': [None] * n_ops
+            'operation_sequence': [None] * n_ops,
         }
 
-        # Step 1: OX on operation sequence — FIX #1: self.rng
+        # Step 1: Order crossover on sequence
         pt1 = self.rng.randint(0, n_ops - 2)
         pt2 = self.rng.randint(pt1 + 1, n_ops - 1)
 
@@ -160,7 +241,7 @@ class FJSSPW_GA:
                 if pos is not None:
                     child2['operation_sequence'][pos] = op
 
-        # Step 2: inherit machine-worker assignments
+        # Step 2: Inherit assignments
         for i in range(n_ops):
             op_idx = child1['operation_sequence'][i]
             if op_idx is not None:
@@ -184,14 +265,17 @@ class FJSSPW_GA:
                     child2['machine_assignment'][i] = parent1['machine_assignment'][pos_p1]
                     child2['worker_assignment'][i] = parent1['worker_assignment'][pos_p1]
 
-        # Step 3: repair
+        # Step 3: Repair infeasible assignments
         child1 = self.repair_chromosome_optimised(child1)
         child2 = self.repair_chromosome_optimised(child2)
 
         return child1, child2
 
+    # ------------------------------------------------------------------
+    # Repair
+    # ------------------------------------------------------------------
+
     def repair_chromosome(self, chromosome: Dict) -> Dict:
-        """Repair infeasible machine-worker assignments (non-cached version)."""
         n_ops = self.decoder.n_operations
 
         for op_idx in range(n_ops):
@@ -204,7 +288,7 @@ class FJSSPW_GA:
                     for w in self.decoder.get_eligible_workers(op_idx, m):
                         feasible_pairs.append((m, w))
                 if feasible_pairs:
-                    m, w = self.rng.choice(feasible_pairs)  # FIX #1
+                    m, w = self.rng.choice(feasible_pairs)
                     chromosome['machine_assignment'][op_idx] = m
                     chromosome['worker_assignment'][op_idx] = w
                 continue
@@ -214,7 +298,6 @@ class FJSSPW_GA:
                 for m in range(self.decoder.n_machines):
                     for w in self.decoder.get_eligible_workers(op_idx, m):
                         feasible_pairs.append((m, w))
-
                 if feasible_pairs:
                     best_pair = min(
                         feasible_pairs,
@@ -226,14 +309,7 @@ class FJSSPW_GA:
         return chromosome
 
     def repair_chromosome_optimised(self, chromosome: Dict) -> Dict:
-        """
-        Repair ONLY infeasible machine-worker assignments.
-
-        FIX #2 (CRITICAL): The original version overwrote every assignment
-        with the cheapest feasible pair, destroying all diversity in the
-        machine/worker vectors. This version only touches assignments that
-        are actually infeasible.
-        """
+        """Repair ONLY infeasible assignments; leave feasible ones untouched."""
         n_ops = self.decoder.n_operations
 
         if not hasattr(self, '_feasible_pairs_cache'):
@@ -243,7 +319,6 @@ class FJSSPW_GA:
             machine = chromosome['machine_assignment'][op_idx]
             worker = chromosome['worker_assignment'][op_idx]
 
-            # Build feasible pairs cache for this operation (lazy)
             if op_idx not in self._feasible_pairs_cache:
                 pairs = []
                 for m in range(self.decoder.n_machines):
@@ -253,15 +328,13 @@ class FJSSPW_GA:
 
             feasible_pairs = self._feasible_pairs_cache[op_idx]
 
-            # Case 1: missing assignment — pick random feasible
             if machine is None or worker is None:
                 if feasible_pairs:
-                    m, w = self.rng.choice(feasible_pairs)  # FIX #1
+                    m, w = self.rng.choice(feasible_pairs)
                     chromosome['machine_assignment'][op_idx] = m
                     chromosome['worker_assignment'][op_idx] = w
                 continue
 
-            # Case 2: ONLY repair if current assignment is infeasible
             if (machine, worker) not in feasible_pairs:
                 if feasible_pairs:
                     best = min(
@@ -273,20 +346,23 @@ class FJSSPW_GA:
 
         return chromosome
 
+    # ------------------------------------------------------------------
+    # Mutation
+    # ------------------------------------------------------------------
+
     def mutation(self, chromosome: Dict) -> Dict:
-        """Apply mutation to a chromosome."""
         child = copy.deepcopy(chromosome)
         n_ops = self.decoder.n_operations
 
-        # Mutation 1: swap two operations in sequence
-        if self.rng.random() < self.mutation_rate:  # FIX #1
-            i, j = self.rng.sample(range(n_ops), 2)  # FIX #1
+        # Swap mutation on sequence
+        if self.rng.random() < self.mutation_rate:
+            i, j = self.rng.sample(range(n_ops), 2)
             child['operation_sequence'][i], child['operation_sequence'][j] = \
                 child['operation_sequence'][j], child['operation_sequence'][i]
 
-        # Mutation 2: reassign a machine-worker pair
-        if self.rng.random() < self.mutation_rate:  # FIX #1
-            op_idx = self.rng.randint(0, n_ops - 1)  # FIX #1
+        # Reassignment mutation
+        if self.rng.random() < self.mutation_rate:
+            op_idx = self.rng.randint(0, n_ops - 1)
             feasible_pairs = []
             for m in range(self.decoder.n_machines):
                 for w in self.decoder.get_eligible_workers(op_idx, m):
@@ -297,17 +373,18 @@ class FJSSPW_GA:
                                 child['worker_assignment'][op_idx])
                 other_pairs = [p for p in feasible_pairs if p != current_pair]
                 if other_pairs:
-                    new_m, new_w = self.rng.choice(other_pairs)  # FIX #1
+                    new_m, new_w = self.rng.choice(other_pairs)
                     child['machine_assignment'][op_idx] = new_m
                     child['worker_assignment'][op_idx] = new_w
 
         return child
 
-    def evolve(self) -> Dict:
-        """Run the genetic algorithm."""
-        self.initialize_population()
+    # ------------------------------------------------------------------
+    # Main loop
+    # ------------------------------------------------------------------
 
-        print(f"Initial best makespan: {self.best_makespan}")
+    def evolve(self) -> Dict:
+        self.initialize_population()
 
         for generation in range(self.generations):
             selected = self.selection()
@@ -320,17 +397,16 @@ class FJSSPW_GA:
                 range(len(self.fitness_values)),
                 key=lambda i: self.fitness_values[i]
             )
-            elites = sorted_indices[:self.elite_size]
-            for idx in elites:
+            for idx in sorted_indices[:self.elite_size]:
                 new_population.append(copy.deepcopy(self.population[idx]))
                 new_fitness.append(self.fitness_values[idx])
 
-            # Generate offspring
+            # Offspring
             while len(new_population) < self.population_size:
-                p1 = self.rng.choice(selected)  # FIX #1
-                p2 = self.rng.choice(selected)  # FIX #1
+                p1 = self.rng.choice(selected)
+                p2 = self.rng.choice(selected)
 
-                if self.rng.random() < self.crossover_rate:  # FIX #1
+                if self.rng.random() < self.crossover_rate:
                     child1, child2 = self.feasibility_preserving_crossover(p1, p2)
                 else:
                     child1 = copy.deepcopy(p1)
@@ -339,20 +415,20 @@ class FJSSPW_GA:
                 child1 = self.mutation(child1)
                 child2 = self.mutation(child2)
 
-                fitness1 = self.evaluate(child1)
-                fitness2 = self.evaluate(child2)
+                f1 = self.evaluate(child1)
+                f2 = self.evaluate(child2)
 
                 new_population.append(child1)
-                new_fitness.append(fitness1)
+                new_fitness.append(f1)
 
                 if len(new_population) < self.population_size:
                     new_population.append(child2)
-                    new_fitness.append(fitness2)
+                    new_fitness.append(f2)
 
             self.population = new_population
             self.fitness_values = new_fitness
 
-            # Update best
+            # Best tracking
             best_idx = min(range(len(self.fitness_values)),
                            key=lambda i: self.fitness_values[i])
             if self.fitness_values[best_idx] < self.best_fitness:
@@ -360,71 +436,44 @@ class FJSSPW_GA:
                 self.best_solution = copy.deepcopy(self.population[best_idx])
                 self.best_makespan = self.best_fitness
 
-            # FIX #3: track per-generation values, not cumulative best
+            # History
             self.history['best_makespan'].append(min(self.fitness_values))
-            self.history['avg_makespan'].append(sum(self.fitness_values) / len(self.fitness_values))
+            self.history['avg_makespan'].append(
+                sum(self.fitness_values) / len(self.fitness_values)
+            )
             self.history['worst_makespan'].append(max(self.fitness_values))
+            self.history['best_balance_cv'].append(
+                self._worker_balance_cv(self.population[best_idx])
+            )
 
             if (generation + 1) % 20 == 0:
-                avg_fitness = sum(self.fitness_values) / len(self.fitness_values)
-                print(f"Gen {generation+1}: Best={self.best_makespan:.1f}, Avg={avg_fitness:.1f}")
-
-        print(f"Final best makespan: {self.best_makespan}")
+                avg = sum(self.fitness_values) / len(self.fitness_values)
+                cv = self.history['best_balance_cv'][-1]
+                print(f"Gen {generation+1}: Best={self.best_makespan:.1f}, "
+                      f"Avg={avg:.1f}, BestCV={cv*100:.1f}%")
 
         return {
             'best_solution': self.best_solution,
             'best_makespan': self.best_makespan,
-            'history': self.history
+            'history': self.history,
+            'fev_count': self.fev_count,
         }
 
     def get_best_schedule(self) -> Dict:
-        """Get the decoded schedule of the best solution."""
         if self.best_solution is None:
             return None
         return self.decoder.decode(self.best_solution)
 
 
 def main():
-    """Test the GA on a small instance."""
+    """Quick smoke test."""
     from parser.fjssp_w_parser import parse_competition_instance
-
-    print("=" * 60)
-    print("TESTING FJSSP-W GENETIC ALGORITHM")
-    print("=" * 60)
 
     instance_path = "../FJSSP-W-Competition/instances/fjssp-w/1_Brandimarte_7_workers.fjs"
     instance_data = parse_competition_instance(instance_path)
-
-    print(f"Instance: 1_Brandimarte_7_workers.fjs")
-    print(f"Jobs: {instance_data['n_jobs']}")
-    print(f"Machines: {instance_data['n_machines']}")
-    print(f"Workers: {instance_data['n_workers']}")
-    print(f"Operations: {instance_data['n_operations']}")
-    print()
-
-    ga = FJSSPW_GA(
-        instance_data,
-        population_size=50,
-        generations=50,
-        crossover_rate=0.8,
-        mutation_rate=0.1,
-        tournament_size=3,
-        elite_size=2,
-        random_seed=42
-    )
-
+    ga = FJSSPW_GA(instance_data, population_size=30, generations=20, random_seed=42)
     result = ga.evolve()
-    print(f"\nBest makespan found: {result['best_makespan']}")
-
-    schedule = ga.get_best_schedule()
-    if schedule:
-        print("\nBest schedule details:")
-        print(f"Start times: {schedule['start_times'][:10]}...")
-        print(f"End times: {schedule['end_times'][:10]}...")
-        print(f"Machine assignments: {schedule['machine_assignment'][:10]}...")
-        print(f"Worker assignments: {schedule['worker_assignment'][:10]}...")
-
-    print("\nGA test complete!")
+    print(f"\nBest makespan: {result['best_makespan']}")
 
 
 if __name__ == "__main__":
