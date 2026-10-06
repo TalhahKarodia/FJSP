@@ -4,9 +4,12 @@ Worker-Aware Decoder for FJSSP-W
 Decodes a chromosome (machine assignment, worker assignment, operation
 sequence) into a feasible schedule.
 
-Fix: create_random_chromosome accepts an optional `rng` parameter so each
-GA instance uses its own RNG stream. This is required for non-degenerate
-behaviour across independent runs.
+Fixes applied:
+1. create_random_chromosome accepts an optional `rng` parameter so each
+   GA instance uses its own RNG stream.
+2. op_to_job and job_op_indices are built correctly from job_sequence,
+   supporting multi-operation jobs (Behnke, Hurink, Barnes, etc.) rather
+   than assuming one operation per job.
 """
 
 import sys
@@ -36,20 +39,19 @@ class FJSSPWDecoder:
         self.job_sequence = instance_data['job_sequence']
         self.encoding = instance_data['encoding']
 
+        # --- Build op -> job mapping correctly ---
+        # job_sequence[i] = job_id of operation i.
+        # This works for any instance (1 or more operations per job).
         self.op_to_job = {}
         self.job_op_indices = {}
 
-        if self.job_sequence and isinstance(self.job_sequence[0], int):
-            for job_id in range(self.n_jobs):
-                op_idx = job_id
-                self.op_to_job[op_idx] = job_id
-                self.job_op_indices[job_id] = [op_idx]
-        else:
-            for job_id, ops in enumerate(self.job_sequence):
-                self.job_op_indices[job_id] = list(ops)
-                for op_idx in ops:
-                    self.op_to_job[op_idx] = job_id
+        for op_idx, job_id in enumerate(self.job_sequence):
+            self.op_to_job[op_idx] = job_id
+            if job_id not in self.job_op_indices:
+                self.job_op_indices[job_id] = []
+            self.job_op_indices[job_id].append(op_idx)
 
+        # Position of each operation within its job
         self.op_position_in_job = {}
         for job_id, ops in self.job_op_indices.items():
             for pos, op_idx in enumerate(ops):
@@ -71,7 +73,9 @@ class FJSSPWDecoder:
         end_times = [0] * self.n_operations
         machine_end_times = [0] * self.n_machines
         worker_end_times = [0] * self.n_workers
-        job_last_end_time = [0] * self.n_jobs
+
+        # Track last end per job_id using a dict (job ids may not be 0..n_jobs-1)
+        job_last_end_time = {}
 
         for op_idx in operation_sequence:
             machine = machine_assignment[op_idx]
@@ -88,7 +92,7 @@ class FJSSPWDecoder:
             earliest_start = max(
                 machine_end_times[machine],
                 worker_end_times[worker],
-                job_last_end_time[job_id]
+                job_last_end_time.get(job_id, 0),
             )
 
             start_times[op_idx] = earliest_start
@@ -129,9 +133,7 @@ class FJSSPWDecoder:
         """Create a random feasible chromosome.
 
         Args:
-            rng: optional random.Random instance. If None, a fresh one is
-                 created. Passing an instance-local RNG is essential for
-                 non-degenerate behaviour across independent GA runs.
+            rng: optional random.Random instance. If None, a fresh one is used.
         """
         if rng is None:
             rng = random.Random()
