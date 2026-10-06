@@ -24,7 +24,7 @@ POP_SIZE = 30
 GENERATIONS = 50
 S_EVOLVE = 10            # scenarios per fitness eval during GA
 S_FINAL = 50             # competition-mandated 50 for final evaluation
-BALANCE_WEIGHT = 0.1
+BALANCE_WEIGHT = 0.0
 
 INSTANCES_DIR = "../FJSSP-W-Competition/instances/fjssp-w"
 RESULTS_DIR = "results"

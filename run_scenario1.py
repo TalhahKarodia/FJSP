@@ -18,7 +18,7 @@ import pandas as pd
 N_RUNS = 30
 POP_SIZE = 30
 GENERATIONS = 50
-BALANCE_WEIGHT = 0.1
+BALANCE_WEIGHT = 0.0
 
 INSTANCES_DIR = "../FJSSP-W-Competition/instances/fjssp-w"
 RESULTS_DIR = "results"

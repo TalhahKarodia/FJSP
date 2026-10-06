@@ -5,11 +5,10 @@ Decodes a chromosome (machine assignment, worker assignment, operation
 sequence) into a feasible schedule.
 
 Fixes applied:
-1. create_random_chromosome accepts an optional `rng` parameter so each
-   GA instance uses its own RNG stream.
-2. op_to_job and job_op_indices are built correctly from job_sequence,
-   supporting multi-operation jobs (Behnke, Hurink, Barnes, etc.) rather
-   than assuming one operation per job.
+1. create_random_chromosome accepts an optional `rng` parameter.
+2. op_to_job and job_op_indices are built correctly from job_sequence.
+3. create_greedy_chromosome added: biases assignments toward fast
+   (machine, worker) pairs to seed the GA population effectively.
 """
 
 import sys
@@ -39,9 +38,7 @@ class FJSSPWDecoder:
         self.job_sequence = instance_data['job_sequence']
         self.encoding = instance_data['encoding']
 
-        # --- Build op -> job mapping correctly ---
-        # job_sequence[i] = job_id of operation i.
-        # This works for any instance (1 or more operations per job).
+        # Build op -> job mapping correctly from job_sequence
         self.op_to_job = {}
         self.job_op_indices = {}
 
@@ -73,8 +70,6 @@ class FJSSPWDecoder:
         end_times = [0] * self.n_operations
         machine_end_times = [0] * self.n_machines
         worker_end_times = [0] * self.n_workers
-
-        # Track last end per job_id using a dict (job ids may not be 0..n_jobs-1)
         job_last_end_time = {}
 
         for op_idx in operation_sequence:
@@ -130,11 +125,7 @@ class FJSSPWDecoder:
         return machines
 
     def create_random_chromosome(self, rng: random.Random = None) -> Dict:
-        """Create a random feasible chromosome.
-
-        Args:
-            rng: optional random.Random instance. If None, a fresh one is used.
-        """
+        """Create a purely random feasible chromosome."""
         if rng is None:
             rng = random.Random()
 
@@ -152,6 +143,54 @@ class FJSSPWDecoder:
                 raise ValueError(f"No feasible pair for operation {op_idx}")
 
             m, w = rng.choice(feasible_pairs)
+            machine_assignment.append(m)
+            worker_assignment.append(w)
+
+        operation_sequence = list(range(n_ops))
+        rng.shuffle(operation_sequence)
+
+        return {
+            'machine_assignment': machine_assignment,
+            'worker_assignment': worker_assignment,
+            'operation_sequence': operation_sequence
+        }
+
+    def create_greedy_chromosome(self, rng: random.Random = None,
+                                 greedy_prob: float = 0.7) -> Dict:
+        """
+        Create a chromosome biased toward fast (machine, worker) pairs.
+
+        For each operation:
+          - with probability `greedy_prob`, pick the cheapest feasible pair
+          - otherwise, pick randomly from the top 10% cheapest pairs
+        This preserves diversity while seeding good building blocks.
+        """
+        if rng is None:
+            rng = random.Random()
+
+        n_ops = self.n_operations
+        machine_assignment = []
+        worker_assignment = []
+
+        for op_idx in range(n_ops):
+            feasible = []
+            for m in range(self.n_machines):
+                for w in self.get_eligible_workers(op_idx, m):
+                    dur = self.durations[op_idx][m][w]
+                    if dur > 0:
+                        feasible.append((dur, m, w))
+
+            if not feasible:
+                raise ValueError(f"No feasible pair for operation {op_idx}")
+
+            feasible.sort()  # ascending by duration
+
+            if rng.random() < greedy_prob:
+                _, m, w = feasible[0]
+            else:
+                top_k = max(1, len(feasible) // 10)
+                _, m, w = rng.choice(feasible[:top_k])
+
             machine_assignment.append(m)
             worker_assignment.append(w)
 

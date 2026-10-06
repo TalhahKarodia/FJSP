@@ -2,11 +2,12 @@
 Genetic Algorithm for FJSSP-W.
 
 Features:
-- Feasibility-preserving crossover (basic order crossover + repair)
-- Two fitness modes: 'deterministic' (Scenario 1) and 'uncertainty' (Scenario 2)
+- Feasibility-preserving crossover (order crossover + repair)
+- Two fitness modes: 'deterministic' and 'uncertainty'
 - Optional worker balance penalty
 - FEV counting per competition rules
-- Per-instance RNG for reproducible independent runs
+- Per-instance RNG
+- Seeded initialisation: 50% greedy, 50% random
 """
 
 import sys, copy
@@ -42,18 +43,17 @@ class FJSSPW_GA:
         uncertainty_seed: Optional[int] = None,
         scenario_seed: Optional[int] = None,
         balance_weight: float = 0.0,
+        greedy_fraction: float = 0.5,
     ):
-        # Per-instance RNG
         self.rng = random.Random(random_seed)
         self.seed = random_seed
 
-        # Fitness config
         self.fitness_mode = fitness_mode
         self.n_scenarios = n_scenarios
         self.fev_count = 0
         self.balance_weight = balance_weight
+        self.greedy_fraction = greedy_fraction
 
-        # Uncertainty
         self.uncertainty_vector = None
         self.scenario_rng = None
         if fitness_mode == 'uncertainty':
@@ -92,11 +92,18 @@ class FJSSPW_GA:
         }
 
     def initialize_population(self):
+        """Seeded initialisation: greedy_fraction greedy + rest random."""
         self.population = []
         self.fitness_values = []
 
-        for _ in range(self.population_size):
-            chromosome = self.decoder.create_random_chromosome(self.rng)
+        n = self.population_size
+        n_greedy = max(1, int(n * self.greedy_fraction))
+
+        for i in range(n):
+            if i < n_greedy:
+                chromosome = self.decoder.create_greedy_chromosome(self.rng)
+            else:
+                chromosome = self.decoder.create_random_chromosome(self.rng)
             self.population.append(chromosome)
             fitness = self.evaluate(chromosome)
             self.fitness_values.append(fitness)
