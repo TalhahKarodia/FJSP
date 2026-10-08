@@ -29,3 +29,8 @@ results/
 .idea/
 Thumbs.db
 .DS_Store
+# Temporary/accidental files
+=*
+*.tmp
+*.log__pycache__/
+*.pyc
