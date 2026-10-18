@@ -27,7 +27,7 @@ POP = 30
 GEN = 50
 BALANCE_W = 0.0
 
-INSTANCES_DIR = "../FJSSP-W-Competition/instances/fjssp-w"
+INSTANCES_DIR = "./data-sample/FJSSP-W-Competition/instances/fjssp-w"
 RESULTS_DIR = "results"
 
 
@@ -72,7 +72,15 @@ ALGORITHMS = {
 
 def main():
     os.makedirs(RESULTS_DIR, exist_ok=True)
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    instances_path = os.path.normpath(os.path.join(script_dir, INSTANCES_DIR))
     instances = sorted(glob.glob(f"{INSTANCES_DIR}/*.fjs"))
+
+    if not instances:
+        print(f"ERROR: No .fjs files found in directory: {instances_path}")
+        print("Please check your INSTANCES_DIR setting.")
+        return
+    
     print(f"Running {len(ALGORITHMS)} algorithms on {len(instances)} instances x {N_RUNS} runs")
     print(f"Settings: POP={POP}, GEN={GEN}")
     print("=" * 75)
