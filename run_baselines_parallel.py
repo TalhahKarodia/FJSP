@@ -31,7 +31,7 @@ GEN = 50
 BALANCE_W = 0.0
 
 # Number of parallel workers (defaults to total physical/logical CPU cores)
-MAX_WORKERS = os.cpu_count() or 4
+MAX_WORKERS = os.cpu_count() - 2 or 4
 
 INSTANCES_DIR = "data-sample/FJSSP-W-Competition/instances/fjssp-w"
 RESULTS_DIR = SCRIPT_DIR / "results"
