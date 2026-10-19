@@ -25,7 +25,7 @@ POP = 30
 GEN = 50
 BALANCE_W = 0.0
 
-INSTANCES_DIR = "../FJSSP-W-Competition/instances/fjssp-w"
+INSTANCES_DIR = "../../FJSSP-W-Competition/instances/fjssp-w"
 SUBMISSION_DIR = "results/submission"
 
 

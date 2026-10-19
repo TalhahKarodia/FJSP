@@ -31,7 +31,7 @@ def main():
     if which in ('baselines', 'all'):
         tasks.append(("Baselines comparison", "python run_baselines_parallel.py"))
     if which in ('submission', 'all'):
-        tasks.append(("Competition submission", "python src/experiments/generate_submission.py both"))
+        tasks.append(("Competition submission", "python src/experiments/generate_submissions_v2.py both"))
 
     for label, cmd in tasks:
         rc = run(label, cmd)
