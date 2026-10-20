@@ -33,7 +33,7 @@ def clone_chromosome(chrom: Dict) -> Dict:
     }
 
 
-class FJSSPW_GA:
+class FJSSPW_GA_V2:
     """Genetic Algorithm for FJSSP-W."""
 
     def __init__(
@@ -119,6 +119,36 @@ class FJSSPW_GA:
                     pairs, key=lambda p: self.decoder.get_processing_time(op_idx, p[0], p[1])
                 )
 
+    def _get_job_id(self, op_idx: int) -> int:
+        """Safely retrieve job ID for a given operation index."""
+        if op_idx is None:
+            return None
+        
+        # Check if decoder has method or attribute
+        if hasattr(self.decoder, 'get_job_id'):
+            return self.decoder.get_job_id(op_idx)
+        if hasattr(self.decoder, 'op_to_job'):
+            return self.decoder.op_to_job[op_idx]
+        
+        # Check instance_data structures
+        if 'op_to_job' in self.instance_data:
+            return self.instance_data['op_to_job'][op_idx]
+        if 'op_job_map' in self.instance_data:
+            return self.instance_data['op_job_map'][op_idx]
+            
+        # Build from job operations list if present
+        if not hasattr(self, '_op_to_job_cache'):
+            self._op_to_job_cache = {}
+            jobs_list = self.instance_data.get('jobs') or self.instance_data.get('job_ops') or []
+            for j_id, ops in enumerate(jobs_list):
+                for op in ops:
+                    # Handle op as dict or int
+                    o_idx = op['op_id'] if isinstance(op, dict) else op
+                    self._op_to_job_cache[o_idx] = j_id
+
+        return self._op_to_job_cache.get(op_idx, 0)
+
+    
     def initialize_population(self):
         """Seeded initialisation: greedy_fraction greedy + rest random."""
         self.population = []
@@ -211,75 +241,7 @@ class FJSSPW_GA:
             best_idx = min(tournament_indices, key=lambda i: self.fitness_values[i])
             selected.append(clone_chromosome(self.population[best_idx]))
         return selected
-
-    def hybrid_job_slice_crossover(
-        self, parent1: Dict, parent2: Dict
-    ) -> Tuple[Dict, Dict]:
-        """
-        Hybrid Crossover for FJSSP-W:
-        - Combines Two-Point Slice OX with Job-Aware Grouping.
-        - Preserves job precedence inside slice windows.
-        - Inherits paired (Machine, Worker) assignments consistent with sequence origin.
-        """
-        n_ops = self.decoder.n_operations
-        p1_seq, p2_seq = parent1['operation_sequence'], parent2['operation_sequence']
-
-        pt1 = self.rng.randint(0, n_ops - 2)
-        pt2 = self.rng.randint(pt1 + 1, n_ops - 1)
-
-        slice_ops_p1 = set(p1_seq[pt1:pt2 + 1])
-        sliced_jobs = {self.decoder.get_job_id(op) for op in slice_ops_p1}
-
-        def create_hybrid_child(primary_parent, secondary_parent, active_jobs):
-            pri_seq = primary_parent['operation_sequence']
-            sec_seq = secondary_parent['operation_sequence']
-
-            c_seq = [None] * n_ops
-            c_m = [None] * n_ops
-            c_w = [None] * n_ops
-
-            copied_ops = set()
-
-            # A. Copy operations of selected jobs from Primary Parent at exact positions
-            for i, op in enumerate(pri_seq):
-                if self.decoder.get_job_id(op) in active_jobs:
-                    c_seq[i] = op
-                    c_m[i] = primary_parent['machine_assignment'][i]
-                    c_w[i] = primary_parent['worker_assignment'][i]
-                    copied_ops.add(op)
-
-            # B. Fill empty slots using Secondary Parent's order & assignments
-            sec_idx = 0
-            for i in range(n_ops):
-                if c_seq[i] is None:
-                    while sec_idx < n_ops:
-                        op_sec = sec_seq[sec_idx]
-                        sec_pos = sec_idx
-                        sec_idx += 1
-
-                        if op_sec not in copied_ops:
-                            c_seq[i] = op_sec
-                            c_m[i] = secondary_parent['machine_assignment'][sec_pos]
-                            c_w[i] = secondary_parent['worker_assignment'][sec_pos]
-                            copied_ops.add(op_sec)
-                            break
-
-            # C. Uniform Assignment Blending (10% chance to explore assignment pairs)
-            for i in range(n_ops):
-                if self.rng.random() < 0.10:
-                    alt_parent = secondary_parent if c_seq[i] in slice_ops_p1 else primary_parent
-                    alt_m = alt_parent['machine_assignment'][i]
-                    alt_w = alt_parent['worker_assignment'][i]
-                    if alt_m is not None and alt_w is not None:
-                        c_m[i], c_w[i] = alt_m, alt_w
-
-            return {'machine_assignment': c_m, 'worker_assignment': c_w, 'operation_sequence': c_seq}
-
-        child1 = create_hybrid_child(parent1, parent2, sliced_jobs)
-        child2 = create_hybrid_child(parent2, parent1, sliced_jobs)
-
-        return self.repair_chromosome_optimised(child1), self.repair_chromosome_optimised(child2)
-
+    
     def repair_chromosome_optimised(self, chromosome: Dict) -> Dict:
         """Repair infeasible assignments using precomputed best pairs."""
         m_assign = chromosome['machine_assignment']
@@ -296,6 +258,75 @@ class FJSSPW_GA:
                     w_assign[op_idx] = best_w
 
         return chromosome
+
+    def feasibility_preserving_crossover(
+        self, parent1: Dict, parent2: Dict
+    ) -> Tuple[Dict, Dict]:
+        """
+        Feasibility preserving crossover for FJSSP-W:
+        - Combines Two-Point Slice OX with Job-Aware Grouping.
+        - Preserves job precedence inside slice windows.
+        - Inherits paired (Machine, Worker) assignments consistent with sequence origin.
+        """
+        n_ops = self.decoder.n_operations
+        p1_seq, p2_seq = parent1['operation_sequence'], parent2['operation_sequence']
+
+        pt1 = self.rng.randint(0, n_ops - 2)
+        pt2 = self.rng.randint(pt1 + 1, n_ops - 1)
+
+        slice_ops_p1 = set(p1_seq[pt1:pt2 + 1])
+        sliced_jobs = {self._get_job_id(op) for op in slice_ops_p1 if op is not None}
+
+        def create_hybrid_child(primary_parent, secondary_parent, active_jobs):
+            pri_seq = primary_parent['operation_sequence']
+            sec_seq = secondary_parent['operation_sequence']
+
+            c_seq = [None] * n_ops
+            c_m = [None] * n_ops
+            c_w = [None] * n_ops
+
+            copied_ops = set()
+
+            # A. Copy operations of selected jobs from Primary Parent at exact positions
+            for i, op in enumerate(pri_seq):
+                if self._get_job_id(op) in active_jobs:
+                    c_seq[i] = op
+                    c_m[i] = primary_parent['machine_assignment'][i]
+                    c_w[i] = primary_parent['worker_assignment'][i]
+                    copied_ops.add(op)
+
+            # Fill empty slots using Secondary Parent's order & assignments
+            sec_idx = 0
+            for i in range(n_ops):
+                if c_seq[i] is None:
+                    while sec_idx < n_ops:
+                        op_sec = sec_seq[sec_idx]
+                        sec_pos = sec_idx
+                        sec_idx += 1
+
+                        if op_sec not in copied_ops:
+                            c_seq[i] = op_sec
+                            c_m[i] = secondary_parent['machine_assignment'][sec_pos]
+                            c_w[i] = secondary_parent['worker_assignment'][sec_pos]
+                            copied_ops.add(op_sec)
+                            break
+
+            # Uniform Assignment Blending (10% chance to explore assignment pairs)
+            for i in range(n_ops):
+                if self.rng.random() < 0.10:
+                    alt_parent = secondary_parent if c_seq[i] in slice_ops_p1 else primary_parent
+                    alt_m = alt_parent['machine_assignment'][i]
+                    alt_w = alt_parent['worker_assignment'][i]
+                    if alt_m is not None and alt_w is not None:
+                        c_m[i], c_w[i] = alt_m, alt_w
+
+            return {'machine_assignment': c_m, 'worker_assignment': c_w, 'operation_sequence': c_seq}
+
+        child1 = create_hybrid_child(parent1, parent2, sliced_jobs)
+        child2 = create_hybrid_child(parent2, parent1, sliced_jobs)
+
+        return self.repair_chromosome_optimised(child1), self.repair_chromosome_optimised(child2)
+    
 
     def mutation(self, chromosome: Dict) -> Dict:
         """Optimized mutation utilizing shallow cloning and precomputed pairs."""
@@ -343,7 +374,7 @@ class FJSSPW_GA:
                 p2 = self.rng.choice(selected)
 
                 if self.rng.random() < self.crossover_rate:
-                    child1, child2 = self.hybrid_job_slice_crossover(p1, p2)
+                    child1, child2 = self.feasibility_preserving_crossover(p1, p2)
                 else:
                     child1 = clone_chromosome(p1)
                     child2 = clone_chromosome(p2)
