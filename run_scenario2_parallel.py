@@ -35,7 +35,7 @@ S_EVOLVE = 10          # scenarios per fitness eval during GA
 S_FINAL = 50           # competition-mandated 50 for final evaluation
 BALANCE_WEIGHT = 0.0
 
-MAX_WORKERS = os.cpu_count() or 4
+MAX_WORKERS = os.cpu_count() - 2 or 4
 
 INSTANCES_DIR = "data-sample/FJSSP-W-Competition/instances/fjssp-w"
 RESULTS_DIR = SCRIPT_DIR / "results"
