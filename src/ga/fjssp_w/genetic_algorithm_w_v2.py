@@ -25,7 +25,7 @@ from ga.fjssp_w.uncertainty_sim import (
 
 
 def clone_chromosome(chrom: Dict) -> Dict:
-    """Fast shallow clone of chromosome lists (much faster than deepcopy)."""
+    """Shallow clone of chromosome lists."""
     return {
         'machine_assignment': chrom['machine_assignment'][:],
         'worker_assignment': chrom['worker_assignment'][:],
