@@ -287,7 +287,7 @@ class FJSSPW_GA_V2:
 
             copied_ops = set()
 
-            # A. Copy operations of selected jobs from Primary Parent at exact positions
+            # Copy operations of selected jobs from Primary Parent at exact positions
             for i, op in enumerate(pri_seq):
                 if self._get_job_id(op) in active_jobs:
                     c_seq[i] = op
