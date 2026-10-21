@@ -174,7 +174,7 @@ pd.DataFrame([{
     'Degrees of Freedom': len(algos) - 1,
     'p-value': round(f_p, 6) if f_p >= 0.000001 else '< 0.000001',
     'Significant Difference': 'Yes' if f_p < 0.05 else 'No',
-}]).to_csv('friedman_test_results.csv', index=False)
+}]).to_csv('results/summary/friedman_test_results.csv', index=False)
 
 # Scenario 2 robustness summary
 try:
