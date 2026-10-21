@@ -25,9 +25,9 @@ def main():
 
     tasks = []
     if which in ('s1', 'all'):
-        tasks.append(("Scenario 1 (deterministic)", "python run_scenario1_parallel.py"))
+        tasks.append(("Scenario 1 (deterministic)", "python run_scenario1_parallel_v2.py"))
     if which in ('s2', 'all'):
-        tasks.append(("Scenario 2 (uncertainty)", "python run_scenario2_parallel.py"))
+        tasks.append(("Scenario 2 (uncertainty)", "python run_scenario2_parallel_v2.py"))
     if which in ('baselines', 'all'):
         tasks.append(("Baselines comparison", "python run_baselines_parallel.py"))
     if which in ('submission', 'all'):

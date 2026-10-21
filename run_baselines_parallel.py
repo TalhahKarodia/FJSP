@@ -14,12 +14,11 @@ from pathlib import Path
 from concurrent.futures import ProcessPoolExecutor, as_completed
 import pandas as pd
 
-# Fix relative pathing relative to this script
 SCRIPT_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRIPT_DIR / 'src'))
 
 from parser.fjssp_w_parser import parse_competition_instance
-from ga.fjssp_w.genetic_algorithm_w import FJSSPW_GA
+from ga.fjssp_w.genetic_algorithm_w_v2 import FJSSPW_GA_V2
 from baselines.standard_ga import StandardGA
 from baselines.hybrid_ga import HybridGA
 from baselines.pso import DiscretePSO
@@ -50,7 +49,7 @@ def run_single_job(args):
         inst = parse_competition_instance(path_str)
 
         if algo_name == 'Proposed_FPC_GA':
-            ga = FJSSPW_GA(
+            ga = FJSSPW_GA_V2(
                 inst, population_size=pop, generations=gen, random_seed=seed,
                 fitness_mode='deterministic', balance_weight=balance_w,
             )

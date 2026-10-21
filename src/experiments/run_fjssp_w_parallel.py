@@ -1,8 +1,8 @@
 """
 Experiment Runner for FJSSP-W
 
-This script runs experiments on FJSSP-W instances using the GA with FPC.
-Includes statistical analysis (Mann-Whitney U test, Friedman test) as per proposal.
+Includes statistical analysis (Mann-Whitney U test, Friedman test)
+with continuous 100% worker saturation, live progress, and incremental CSV checkpointing.
 """
 
 import sys
@@ -44,22 +44,10 @@ def run_experiment(
     random_seed: int = 42,
     verbose: bool = False
 ) -> Dict:
-    """
-    Run a single experiment on an instance.
-    
-    Returns:
-        dict: Results including makespan and runtime
-    """
-    if verbose:
-        print(f"\n{'='*60}")
-        print(f"Running experiment on: {instance_name}")
-        print(f"{'='*60}")
-    
-    # Load instance
+    """Run a single experiment on an instance."""
     start_time = time.time()
     instance_data = parse_competition_instance(instance_path)
     
-    # Create GA
     ga = FJSSPW_GA(
         instance_data,
         population_size=population_size,
@@ -71,7 +59,7 @@ def run_experiment(
         random_seed=random_seed
     )
     
-    # Run GA (silent mode)
+    # Run GA silently
     original_print = print
     if not verbose:
         import builtins
@@ -79,15 +67,10 @@ def run_experiment(
     
     result = ga.evolve()
     
-    # Restore print
     if not verbose:
         import builtins
         builtins.print = original_print
     
-    # Get schedule
-    schedule = ga.get_best_schedule()
-    
-    # Calculate runtime
     runtime = time.time() - start_time
     
     return {
@@ -95,14 +78,12 @@ def run_experiment(
         'best_makespan': float(result['best_makespan']),
         'runtime': runtime,
         'generations': generations,
-        'population_size': population_size,
-        'schedule': schedule,
-        'history': result['history']
+        'population_size': population_size
     }
 
 
 def run_worker(args):
-    """Adapts run_experiment function for multiprocessing with ProcessPoolExecutor."""
+    """Worker task wrapping run_experiment for multiprocessing."""
     run_idx, instance_path, instance_name, pop_size, gens, seed, verbose = args
 
     result = run_experiment(
@@ -118,25 +99,15 @@ def run_worker(args):
 
 
 def perform_statistical_tests(results: Dict) -> Dict:
-    """
-    Perform statistical tests on experiment results.
-    
-    Args:
-        results: Dictionary with instance names as keys and lists of makespans as values
-        
-    Returns:
-        dict: Statistical test results
-    """
+    """Perform statistical tests on experiment results."""
     if not SCIPY_AVAILABLE:
         return {'error': 'scipy not available'}
     
     stats_results = {}
-    
-    # Get all makespan lists
     instance_names = list(results.keys())
     makespan_lists = [results[name] for name in instance_names]
     
-    # 1. Friedman test (non-parametric test for multiple groups)
+    # 1. Friedman test
     try:
         friedman_stat, friedman_p = friedmanchisquare(*makespan_lists)
         stats_results['friedman'] = {
@@ -147,7 +118,7 @@ def perform_statistical_tests(results: Dict) -> Dict:
     except Exception as e:
         stats_results['friedman'] = {'error': str(e)}
     
-    # 2. Pairwise Mann-Whitney U tests (with Bonferroni correction)
+    # 2. Pairwise Mann-Whitney U tests
     pairwise_results = []
     n_instances = len(instance_names)
     
@@ -201,102 +172,112 @@ def run_all_instances(
     population_size: int = 100,
     generations: int = 200,
     test_all: bool = True,
+    max_workers: int = 12,
     verbose: bool = False
 ) -> Tuple[List[Dict], Dict]:
-    """
-    Run experiments on all instances in a directory.
-    
-    Args:
-        instance_dir: Directory containing .fjs files
-        output_file: Path to output CSV file
-        n_runs_per_instance: Number of runs per instance
-        population_size: GA population size
-        generations: GA generations
-        test_all: If True, test all instances. If False, test first 5.
-        verbose: If True, print detailed output
-    
-    Returns:
-        Tuple: (all_results, statistical_results)
-    """
-    # Find all .fjs files
+    """Run experiments on instances with global process pooling and live tracking."""
     instance_files = sorted(glob.glob(os.path.join(instance_dir, "*.fjs")))
     
     if not instance_files:
         print(f"No .fjs files found in {instance_dir}")
         return [], {}
     
-    print(f"\nFound {len(instance_files)} instances")
-    
-    # Filter instances
     if not test_all:
         instance_files = instance_files[:5]
-        print(f"Running on {len(instance_files)} instances (first 5 for testing)")
-    else:
-        print(f"Running on ALL {len(instance_files)} instances")
     
-    # Prepare results
-    all_results = []
-    all_makespans = {}  # For statistical tests
-    
-    # Run each instance
-    for i, instance_path in enumerate(instance_files):
-        instance_name = os.path.basename(instance_path)
-        
-        print(f"\n{'#'*60}")
-        print(f"Instance {i+1}/{len(instance_files)}: {instance_name}")
-        print(f"{'#'*60}")
-        
-        # Run multiple times in parallel
-        instance_results = []
-        instance_makespans = []
+    print(f"\nFound {len(instance_files)} instances.")
+    print(f"Total runs to execute: {len(instance_files) * n_runs_per_instance} across {max_workers} worker cores.")
 
-        print(f"Starting {n_runs_per_instance} independent parallel runs...")
+    # Flatten all tasks across all instances
+    tasks = []
+    for instance_path in instance_files:
+        instance_name = os.path.basename(instance_path)
+        for run in range(n_runs_per_instance):
+            tasks.append((run, instance_path, instance_name, population_size, generations, 42 + run, verbose))
+    
+    total_tasks = len(tasks)
+    completed_counter = 0
+    start_wall_time = time.time()
+    
+    # Grouped storage
+    instance_data_store = {os.path.basename(p): {'makespans': [], 'detailed': []} for p in instance_files}
+
+    # Open CSV early for live incremental writes
+    csv_file = None
+    csv_writer = None
+    if output_file:
+        raw_runs_file = output_file.replace('.csv', '_raw_runs.csv')
+        csv_file = open(raw_runs_file, 'w', newline='')
+        csv_writer = csv.writer(csv_file)
+        csv_writer.writerow(['instance', 'run', 'best_makespan', 'runtime', 'population_size', 'generations'])
+
+    print("\nStarting execution pool...")
+    print("-" * 80)
+
+    with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as executor:
+        future_to_task = {executor.submit(run_worker, task): task for task in tasks}
         
-        # Package the arguments for all runs
-        run_args = [
-            (run, instance_path, instance_name, population_size, generations, 42 + run, verbose)
-            for run in range(n_runs_per_instance)
-        ]
-        
-        # Execute the independent GAs simultaneously using processes
-        with concurrent.futures.ProcessPoolExecutor() as executor:
-            completed_runs = list(executor.map(run_worker, run_args))
+        for future in concurrent.futures.as_completed(future_to_task):
+            res = future.result()
+            completed_counter += 1
+            inst_name = res['instance']
             
-        # Unpack the results
-        for result in completed_runs:
-            instance_results.append(result)
-            instance_makespans.append(result['best_makespan'])
-            print(f"Run {result['run']} best makespan: {result['best_makespan']}")
+            # Store result
+            instance_data_store[inst_name]['makespans'].append(res['best_makespan'])
+            instance_data_store[inst_name]['detailed'].append(res)
             
-        # Store for statistical tests
-        all_makespans[instance_name] = instance_makespans
+            # Write to raw CSV immediately
+            if csv_writer:
+                csv_writer.writerow([
+                    res['instance'], res['run'], res['best_makespan'], 
+                    f"{res['runtime']:.2f}", res['population_size'], res['generations']
+                ])
+                csv_file.flush()
+
+            # Calculate progress metrics
+            elapsed = time.time() - start_wall_time
+            avg_per_task = elapsed / completed_counter
+            remaining_tasks = total_tasks - completed_counter
+            eta_seconds = remaining_tasks * (avg_per_task / max_workers)
+            eta_str = time.strftime("%H:%M:%S", time.gmtime(eta_seconds))
+            
+            print(
+                f"[{completed_counter:03d}/{total_tasks:03d}] "
+                f"Instance: {inst_name[:25]:<25} | Run {res['run']:02d} Makespan: {res['best_makespan']:<6.1f} | "
+                f"Time/Run: {res['runtime']:5.1f}s | ETA: {eta_str}", 
+                flush=True
+            )
+
+    if csv_file:
+        csv_file.close()
+
+    # Aggregate final summaries
+    all_results = []
+    all_makespans = {}
+    
+    for instance_name, data in instance_data_store.items():
+        makespans = data['makespans']
+        if not makespans:
+            continue
         
-        # Calculate statistics
-        avg_makespan = sum(instance_makespans) / len(instance_makespans)
-        best_makespan = min(instance_makespans)
-        worst_makespan = max(instance_makespans)
-        std_makespan = statistics.stdev(instance_makespans) if len(instance_makespans) > 1 else 0
+        all_makespans[instance_name] = makespans
+        avg_makespan = sum(makespans) / len(makespans)
+        best_makespan = min(makespans)
+        worst_makespan = max(makespans)
+        std_makespan = statistics.stdev(makespans) if len(makespans) > 1 else 0
         
-        print(f"\n{instance_name} Results:")
-        print(f"  Best:     {best_makespan:.1f}")
-        print(f"  Average:  {avg_makespan:.1f}")
-        print(f"  Worst:    {worst_makespan:.1f}")
-        print(f"  Std Dev:  {std_makespan:.1f}")
-        print(f"  Runs:     {n_runs_per_instance}")
-        
-        # Store summary
         all_results.append({
             'instance': instance_name,
             'best': best_makespan,
             'average': avg_makespan,
             'worst': worst_makespan,
             'std': std_makespan,
-            'runs': n_runs_per_instance,
+            'runs': len(makespans),
             'population_size': population_size,
             'generations': generations,
-            'detailed_results': instance_results
+            'detailed_results': data['detailed']
         })
-    
+
     # Perform statistical tests
     print("\n" + "="*60)
     print("PERFORMING STATISTICAL TESTS")
@@ -305,30 +286,8 @@ def run_all_instances(
     statistical_results = {}
     if SCIPY_AVAILABLE and len(all_makespans) > 1:
         statistical_results = perform_statistical_tests(all_makespans)
-        
-        # Print Friedman test results
-        if 'friedman' in statistical_results:
-            fr = statistical_results['friedman']
-            if 'error' not in fr:
-                print(f"\nFriedman Test (overall significance):")
-                print(f"  Statistic: {fr['statistic']:.4f}")
-                print(f"  P-value:   {fr['p_value']:.4f}")
-                print(f"  Significant: {fr['significant']} (p < 0.05)")
-        
-        # Print pairwise results summary
-        if 'pairwise' in statistical_results:
-            significant_pairs = [p for p in statistical_results['pairwise'] 
-                               if p.get('significant_bonferroni', False)]
-            print(f"\nSignificant pairwise differences (Bonferroni corrected):")
-            if significant_pairs:
-                for p in significant_pairs:
-                    print(f"  {p['instance1']} vs {p['instance2']}: p={p['p_value']:.4f}")
-            else:
-                print("  No significant pairwise differences found")
-    else:
-        print("\nStatistical tests skipped (scipy not available or insufficient data)")
-    
-    # Save to CSV
+
+    # Save summary CSV
     if output_file:
         with open(output_file, 'w', newline='') as f:
             writer = csv.writer(f)
@@ -338,91 +297,37 @@ def run_all_instances(
             ])
             for r in all_results:
                 writer.writerow([
-                    r['instance'],
-                    r['best'],
-                    r['average'],
-                    r['worst'],
-                    r['std'],
-                    r['runs'],
-                    r['population_size'],
-                    r['generations']
+                    r['instance'], r['best'], r['average'], r['worst'],
+                    r['std'], r['runs'], r['population_size'], r['generations']
                 ])
-        print(f"\nResults saved to: {output_file}")
-        
-        # Also save statistical results if available
-        if SCIPY_AVAILABLE and statistical_results:
-            stats_file = output_file.replace('.csv', '_statistics.csv')
-            with open(stats_file, 'w', newline='') as f:
-                writer = csv.writer(f)
-                writer.writerow(['instance', 'mean', 'median', 'std', 'min', 'max', 'n'])
-                for name, desc in statistical_results.get('descriptive', {}).items():
-                    writer.writerow([
-                        name,
-                        desc['mean'],
-                        desc['median'],
-                        desc['std'],
-                        desc['min'],
-                        desc['max'],
-                        desc['n']
-                    ])
-            print(f"Statistical results saved to: {stats_file}")
-    
-    # Print summary
-    print("\n" + "="*60)
-    print("EXPERIMENT SUMMARY")
-    print("="*60)
-    print(f"Total instances: {len(all_results)}")
-    print(f"Runs per instance: {n_runs_per_instance}")
-    print(f"Population size: {population_size}")
-    print(f"Generations: {generations}")
-    print("\nResults:")
-    print("-"*80)
-    print(f"{'Instance':35} {'Best':>10} {'Avg':>10} {'Worst':>10} {'Std':>10}")
-    print("-"*80)
-    for r in all_results:
-        print(f"{r['instance'][:35]:35} {r['best']:>10.1f} {r['average']:>10.1f} {r['worst']:>10.1f} {r['std']:>10.1f}")
-    
+        print(f"\nSummary results saved to: {output_file}")
+
     return all_results, statistical_results
 
 
 def main():
-    """Main entry point for experiments."""
-    # Define paths
+    """Main entry point."""
     competition_root = "../FJSSP-W-Competition"
     instance_dir = os.path.join(competition_root, "instances/fjssp-w")
     
-    # Output file
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     output_file = f"results/wfu/experiment_results_{timestamp}.csv"
-    
-    # Create results directory if it doesn't exist
     os.makedirs("results/wfu", exist_ok=True)
     
-    # Run experiments
-    print("="*60)
-    print("FJSSP-W EXPERIMENT RUNNER")
-    print("="*60)
-    print(f"Instance directory: {instance_dir}")
-    print(f"Output file: {output_file}")
-    print()
-    
-    # Check if instance directory exists
     if not os.path.exists(instance_dir):
         print(f"Error: Instance directory not found: {instance_dir}")
-        print(f"Current directory: {os.getcwd()}")
         return
     
-    # Run all instances with full settings
-    results, stats = run_all_instances(
+    run_all_instances(
         instance_dir=instance_dir,
         output_file=output_file,
-        n_runs_per_instance=30,    # As per proposal
-        population_size=100,        # As per proposal
-        generations=200,           # As per proposal
-        test_all=True,             # Test ALL instances
-        verbose=False              # Quiet mode for speed
+        n_runs_per_instance=30,
+        population_size=100,
+        generations=200,
+        test_all=True,
+        max_workers=12,
+        verbose=False
     )
-    
     print("\nExperiments complete!")
 
 
