@@ -3,7 +3,7 @@ Optimized Genetic Algorithm for FJSSP-W.
 
 Features & Optimizations:
 - Fast chromosome shallow cloning (replacing deepcopy)
-- Hybrid Job-Slice Crossover (Combines two-point slice OX with SOTA job precedence preservation & origin-paired assignments)
+- Feasibility Preserving Crossover (Combines two-point slice OX with SOTA job precedence preservation & origin-paired assignments)
 - Precomputed feasible (machine, worker) pairs, sets, and fastest pairs per operation
 - Fast repair mechanism using cached best pairs
 - Evaluation memoization cache for fitness calculations
@@ -263,13 +263,13 @@ class FJSSPW_GA_V2:
         self, parent1: Dict, parent2: Dict
     ) -> Tuple[Dict, Dict]:
         """
-        Feasibility preserving crossover for FJSSP-W:
+        Feasibility Crossover for FJSSP-W:
         - Combines Two-Point Slice OX with Job-Aware Grouping.
         - Preserves job precedence inside slice windows.
         - Inherits paired (Machine, Worker) assignments consistent with sequence origin.
         """
         n_ops = self.decoder.n_operations
-        p1_seq, p2_seq = parent1['operation_sequence'], parent2['operation_sequence']
+        p1_seq = parent1['operation_sequence']
 
         pt1 = self.rng.randint(0, n_ops - 2)
         pt2 = self.rng.randint(pt1 + 1, n_ops - 1)
@@ -312,11 +312,22 @@ class FJSSPW_GA_V2:
                             break
 
             # Uniform Assignment Blending (10% chance to explore assignment pairs)
-            for i in range(n_ops):
+            # Pre-calculate positions of operations in the alternate parent to ensure O(1) lookup
+            pri_op_positions = {op: idx for idx, op in enumerate(pri_seq)}
+            sec_op_positions = {op: idx for idx, op in enumerate(sec_seq)}
+
+            for i, op in enumerate(c_seq):
                 if self.rng.random() < 0.10:
-                    alt_parent = secondary_parent if c_seq[i] in slice_ops_p1 else primary_parent
-                    alt_m = alt_parent['machine_assignment'][i]
-                    alt_w = alt_parent['worker_assignment'][i]
+                    # Determine which parent this operation's base assignment came from
+                    came_from_primary = self._get_job_id(op) in active_jobs
+                    alt_parent = secondary_parent if came_from_primary else primary_parent
+                    alt_positions = sec_op_positions if came_from_primary else pri_op_positions
+                    
+                    # Find where this exact operation lives in the alternate parent
+                    alt_idx = alt_positions[op]
+                    alt_m = alt_parent['machine_assignment'][alt_idx]
+                    alt_w = alt_parent['worker_assignment'][alt_idx]
+                    
                     if alt_m is not None and alt_w is not None:
                         c_m[i], c_w[i] = alt_m, alt_w
 
@@ -326,7 +337,6 @@ class FJSSPW_GA_V2:
         child2 = create_hybrid_child(parent2, parent1, sliced_jobs)
 
         return self.repair_chromosome_optimised(child1), self.repair_chromosome_optimised(child2)
-    
 
     def mutation(self, chromosome: Dict) -> Dict:
         """Optimized mutation utilizing shallow cloning and precomputed pairs."""
