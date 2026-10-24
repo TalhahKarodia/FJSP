@@ -126,7 +126,7 @@ $$
 \mathbf{Input:} & \text{Parent chromosomes } P_1, P_2 \\
 \mathbf{Output:} & \text{Feasible offspring chromosomes } C_1, C_2 \\
 \hline
-1: & n_{\text{ops}} \leftarrow \text{decoder.n\_operations} \\
+1: & n_{\text{ops}} \leftarrow \text{decoder.n}_{\text{operations}} \\
 2: & pt_1 \leftarrow \text{RandomInt}(0, n_{\text{ops}} - 2) \\
 3: & pt_2 \leftarrow \text{RandomInt}(pt_1 + 1, n_{\text{ops}} - 1) \\
 4: & S_{\text{ops}} \leftarrow P_1.\text{sequence}[pt_1 : pt_2 + 1] \\
@@ -171,8 +171,8 @@ $$
 25: & \mathbf{for}\; i \leftarrow 0 \;\mathbf{to}\; n_{\text{ops}} - 1 \;\mathbf{do} \\
 26: & \quad op \leftarrow c_{\text{seq}}[i] \\
 27: & \quad \mathbf{if}\; \text{RandomFloat}(0, 1) < 0.10 \;\mathbf{then} \\
-28: & \qquad \text{is\_primary} \leftarrow (\text{GetJobId}(op) \in J_{\text{active}}) \\
-29: & \qquad (P_{\text{alt}}, M_{\text{alt}}) \leftarrow \mathbf{if}\; \text{is\_primary} \;\mathbf{then}\; (P_{\text{sec}}, M_{\text{sec}}) \;\mathbf{else}\; (P_{\text{pri}}, M_{\text{pri}}) \\
+28: & \qquad \text{is}_{\text{primary}} \leftarrow (\text{GetJobId}(op) \in J_{\text{active}}) \\
+29: & \qquad (P_{\text{alt}}, M_{\text{alt}}) \leftarrow \mathbf{if}\; \text{is}_{\text{primary}} \;\mathbf{then}\; (P_{\text{sec}}, M_{\text{sec}}) \;\mathbf{else}\; (P_{\text{pri}}, M_{\text{pri}}) \\
 30: & \qquad idx_{\text{alt}} \leftarrow M_{\text{alt}}[op] \\
 31: & \qquad m_{\text{alt}} \leftarrow P_{\text{alt}}.m[idx_{\text{alt}}], \quad w_{\text{alt}} \leftarrow P_{\text{alt}}.w[idx_{\text{alt}}] \\
 32: & \qquad \mathbf{if}\; m_{\text{alt}} \neq \text{null} \land w_{\text{alt}} \neq \text{null} \;\mathbf{then} \\
@@ -180,7 +180,7 @@ $$
 34: & \qquad \mathbf{end\;if} \\
 35: & \quad \mathbf{end\;if} \\
 36: & \mathbf{end\;for} \\
-37: & \mathbf{return}\; \{ \text{machine\_assignment}: c_m, \text{worker\_assignment}: c_w, \text{operation\_sequence}: c_{\text{seq}} \} \\
+37: & \mathbf{return}\; \{ \text{machine}_{\text{assignment}}: c_m, \text{worker}_{\text{assignment}}: c_w, \text{operation}_{\text{sequence}}: c_{\text{seq}} \} \\
 \hline
 \end{array}
 $$
