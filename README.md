@@ -127,7 +127,7 @@ To inject localized genetic diversity, each gene position undergoes a uniform 10
 
 **Phase 5: Feasibility Restoration**
 
-The resultant offspring is passed through an optimized deterministic repair heuristic (repair_chromosome_optimised) to resolve any residual precedence violations or dual-resource allocation conflicts, guaranteeing strict constraint adherence.
+The resultant offspring is passed through an optimized deterministic repair heuristic (`repair_chromosome_optimised`) to resolve any residual precedence violations or dual-resource allocation conflicts, guaranteeing strict constraint adherence.
 
 
 
