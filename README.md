@@ -62,7 +62,8 @@ An optimization framework for solving the Flexible Job Shop Scheduling Problem w
 ```
 # Requirements & Installation
 Environment
-Python 3.9+
+`Python 3.9+`
+`Virtual Environment`
 
 # Dependencies
 Install the required dependencies via pip:
@@ -110,11 +111,11 @@ python report_tables.py
 ## Crossover Mechanics
 **Phase 1: Localized Temporal Slicing**
 
-A contiguous spatial window [pt1, pt2] is randomly initialized on Parent 1's operation sequence. The subset of unique jobs executing within this chronological window is extracted into an active_jobs set.
+A contiguous spatial window [pt1, pt2] is randomly initialized on Parent 1's operation sequence. The subset of unique jobs executing within this chronological window is extracted into an `active_jobs` set.
 
 **Phase 2: Spatial & Synergistic Anchoring**
 
-Operations corresponding to the active_jobs set are inherited by the offspring at their exact sequence indices. This perfectly preserves both the chronological timing and the primary Machine-Worker assignment synergies of the localized bottleneck.
+Operations corresponding to the active_jobs set are inherited by the offspring at their exact sequence indices. This preserves both the chronological timing and the primary Machine-Worker assignment synergies of the localized bottleneck.
 
 **Phase 3: Relative Topological Fill**
 
