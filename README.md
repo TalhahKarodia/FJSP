@@ -119,64 +119,79 @@ python report_tables.py
 
 
 ## Pseudocode
-$$
-\begin{array}{ll}
-\mathbf{Algorithm:} & \mathbf{FeasibilityPreservingCrossover}(P_1, P_2) \\
-\hline
-\mathbf{Input:} & \text{Parent chromosomes } P_1, P_2 \\
-\mathbf{Output:} & \text{Feasible offspring chromosomes } C_1, C_2 \\
-\hline
-1: & n_{\text{ops}} \leftarrow \text{decoder.n\_operations} \\
-2: & pt_1 \leftarrow \text{RandomInt}(0, n_{\text{ops}} - 2) \\
-3: & pt_2 \leftarrow \text{RandomInt}(pt_1 + 1, n_{\text{ops}} - 1) \\
-4: & S_{\text{ops}} \leftarrow P_1.\text{sequence}[pt_1 : pt_2 + 1] \\
-5: & J_{\text{active}} \leftarrow \{ \text{GetJobId}(op) \mid op \in S_{\text{ops}} \land op \neq \text{null} \} \\
-6: & C_1^{\text{raw}} \leftarrow \mathbf{CreateHybridChild}(P_1, P_2, J_{\text{active}}) \\
-7: & C_2^{\text{raw}} \leftarrow \mathbf{CreateHybridChild}(P_2, P_1, J_{\text{active}}) \\
-8: & C_1 \leftarrow \mathbf{RepairChromosomeOptimised}(C_1^{\text{raw}}) \\
-9: & C_2 \leftarrow \mathbf{RepairChromosomeOptimised}(C_2^{\text{raw}}) \\
-10: & \mathbf{return}\; C_1, C_2 \\
-\hline
-\\
-\mathbf{Function:} & \mathbf{CreateHybridChild}(P_{\text{pri}}, P_{\text{sec}}, J_{\text{active}}) \\
-\hline
-1: & \text{Initialize arrays } c_{\text{seq}}, c_m, c_w \text{ of length } n_{\text{ops}} \text{ filled with } \text{null} \\
-2: & \mathcal{O}_{\text{copied}} \leftarrow \emptyset \\
-3: & \mathbf{for}\; i \leftarrow 0 \;\mathbf{to}\; n_{\text{ops}} - 1 \;\mathbf{do} \\
-4: & \quad op \leftarrow P_{\text{pri}}.\text{sequence}[i] \\
-5: & \quad \mathbf{if}\; \text{GetJobId}(op) \in J_{\text{active}} \;\mathbf{then} \\
-6: & \qquad c_{\text{seq}}[i] \leftarrow op,\quad c_m[i] \leftarrow P_{\text{pri}}.m[i],\quad c_w[i] \leftarrow P_{\text{pri}}.w[i] \\
-7: & \qquad \mathcal{O}_{\text{copied}} \leftarrow \mathcal{O}_{\text{copied}} \cup \{op\} \\
-8: & \quad \mathbf{end\;if} \\
-9: & \mathbf{end\;for} \\
-10: & idx_{\text{sec}} \leftarrow 0 \\
-11: & \mathbf{for}\; i \leftarrow 0 \;\mathbf{to}\; n_{\text{ops}} - 1 \;\mathbf{do} \\
-12: & \quad \mathbf{if}\; c_{\text{seq}}[i] = \text{null} \;\mathbf{then} \\
-13: & \qquad \mathbf{while}\; idx_{\text{sec}} < n_{\text{ops}} \;\mathbf{do} \\
-14: & \qquad\quad op_{\text{sec}} \leftarrow P_{\text{sec}}.\text{sequence}[idx_{\text{sec}}], \quad pos_{\text{sec}} \leftarrow idx_{\text{sec}} \\
-15: & \qquad\quad idx_{\text{sec}} \leftarrow idx_{\text{sec}} + 1 \\
-16: & \qquad\quad \mathbf{if}\; op_{\text{sec}} \notin \mathcal{O}_{\text{copied}} \;\mathbf{then} \\
-17: & \qquad\qquad c_{\text{seq}}[i] \leftarrow op_{\text{sec}},\quad c_m[i] \leftarrow P_{\text{sec}}.m[pos_{\text{sec}}],\quad c_w[i] \leftarrow P_{\text{sec}}.w[pos_{\text{sec}}] \\
-18: & \qquad\qquad \mathcal{O}_{\text{copied}} \leftarrow \mathcal{O}_{\text{copied}} \cup \{op_{\text{sec}}\} \\
-19: & \qquad\qquad \mathbf{break} \\
-20: & \qquad\quad \mathbf{end\;if} \\
-21: & \qquad \mathbf{end\;while} \\
-22: & \quad \mathbf{end\;if} \\
-23: & \mathbf{end\;for} \\
-24: & \text{Construct maps } M_{\text{pri}}, M_{\text{sec}} : op \mapsto \text{index in } P_{\text{pri}}.\text{sequence}, P_{\text{sec}}.\text{sequence} \\
-25: & \mathbf{for}\; i \leftarrow 0 \;\mathbf{to}\; n_{\text{ops}} - 1 \;\mathbf{do} \\
-26: & \quad op \leftarrow c_{\text{seq}}[i] \\
-27: & \quad \mathbf{if}\; \text{RandomFloat}(0, 1) < 0.10 \;\mathbf{then} \\
-28: & \qquad \text{is\_primary} \leftarrow (\text{GetJobId}(op) \in J_{\text{active}}) \\
-29: & \qquad (P_{\text{alt}}, M_{\text{alt}}) \leftarrow \mathbf{if}\; \text{is\_primary} \;\mathbf{then}\; (P_{\text{sec}}, M_{\text{sec}}) \;\mathbf{else}\; (P_{\text{pri}}, M_{\text{pri}}) \\
-30: & \qquad idx_{\text{alt}} \leftarrow M_{\text{alt}}[op] \\
-31: & \qquad m_{\text{alt}} \leftarrow P_{\text{alt}}.m[idx_{\text{alt}}], \quad w_{\text{alt}} \leftarrow P_{\text{alt}}.w[idx_{\text{alt}}] \\
-32: & \qquad \mathbf{if}\; m_{\text{alt}} \neq \text{null} \land w_{\text{alt}} \neq \text{null} \;\mathbf{then} \\
-33: & \qquad\qquad c_m[i] \leftarrow m_{\text{alt}},\quad c_w[i] \leftarrow w_{\text{alt}} \\
-34: & \qquad \mathbf{end\;if} \\
-35: & \quad \mathbf{end\;if} \\
-36: & \mathbf{end\;for} \\
-37: & \mathbf{return}\; \{ \text{machine\_assignment}: c_m, \text{worker\_assignment}: c_w, \text{operation\_sequence}: c_{\text{seq}} \} \\
-\hline
-\end{array}
-$$
+\documentclass[varwidth=120ex, border=10pt]{standalone}
+\usepackage{amsmath, amssymb}
+\usepackage[ruled, vlined, linesnumbered]{algorithm2e}
+
+\begin{document}
+
+\SetKwFunction{FeasCross}{FeasibilityPreservingCrossover}
+\SetKwFunction{CreateChild}{CreateHybridChild}
+\SetKwFunction{Repair}{RepairChromosomeOptimised}
+\SetKwFunction{RandomInt}{RandomInt}
+\SetKwFunction{RandomFloat}{RandomFloat}
+\SetKwFunction{GetJobId}{GetJobId}
+
+\SetAlgorithmName{Algorithm}{algorithm}{List of Algorithms}
+
+\begin{algorithm}[H]
+\caption{\FeasCross{$P_1, P_2$}}
+\KwIn{Parent chromosomes $P_1, P_2$}
+\KwOut{Feasible offspring chromosomes $C_1, C_2$}
+
+$n_{\text{ops}} \gets \text{decoder.n\_operations}$\;
+$pt_1 \gets \RandomInt(0, n_{\text{ops}} - 2)$\;
+$pt_2 \gets \RandomInt(pt_1 + 1, n_{\text{ops}} - 1)$\;
+$S_{\text{ops}} \gets P_1.\text{sequence}[pt_1 : pt_2 + 1]$\;
+$J_{\text{active}} \gets \{ \GetJobId(op) \mid op \in S_{\text{ops}} \land op \neq \text{null} \}$\;
+$C_1^{\text{raw}} \gets \CreateChild(P_1, P_2, J_{\text{active}})$\;
+$C_2^{\text{raw}} \gets \CreateChild(P_2, P_1, J_{\text{active}})$\;
+$C_1 \gets \Repair(C_1^{\text{raw}})$\;
+$C_2 \gets \Repair(C_2^{\text{raw}})$\;
+\Return $C_1, C_2$\;
+\end{algorithm}
+
+\vspace{1em}
+
+\begin{algorithm}[H]
+\caption{\CreateChild{$P_{\text{pri}}, P_{\text{sec}}, J_{\text{active}}$}}
+Initialize arrays $c_{\text{seq}}, c_m, c_w$ of length $n_{\text{ops}}$ filled with $\text{null}$\;
+$\mathcal{O}_{\text{copied}} \gets \emptyset$\;
+\For{$i \gets 0$ \KwTo $n_{\text{ops}} - 1$}{
+    $op \gets P_{\text{pri}}.\text{sequence}[i]$\;
+    \If{$\GetJobId(op) \in J_{\text{active}}$}{
+        $c_{\text{seq}}[i] \gets op$, \quad $c_m[i] \gets P_{\text{pri}}.m[i]$, \quad $c_w[i] \gets P_{\text{pri}}.w[i]$\;
+        $\mathcal{O}_{\text{copied}} \gets \mathcal{O}_{\text{copied}} \cup \{op\}$\;
+    }
+}
+$idx_{\text{sec}} \gets 0$\;
+\For{$i \gets 0$ \KwTo $n_{\text{ops}} - 1$}{
+    \If{$c_{\text{seq}}[i] = \text{null}$}{
+        \While{$idx_{\text{sec}} < n_{\text{ops}}$}{
+            $op_{\text{sec}} \gets P_{\text{sec}}.\text{sequence}[idx_{\text{sec}}]$, \quad $pos_{\text{sec}} \gets idx_{\text{sec}}$\;
+            $idx_{\text{sec}} \gets idx_{\text{sec}} + 1$\;
+            \If{$op_{\text{sec}} \notin \mathcal{O}_{\text{copied}}$}{
+                $c_{\text{seq}}[i] \gets op_{\text{sec}}$, \quad $c_m[i] \gets P_{\text{sec}}.m[pos_{\text{sec}}]$, \quad $c_w[i] \gets P_{\text{sec}}.w[pos_{\text{sec}}]$\;
+                $\mathcal{O}_{\text{copied}} \gets \mathcal{O}_{\text{copied}} \cup \{op_{\text{sec}}\}$\;
+                \textbf{break}\;
+            }
+        }
+    }
+}
+Construct maps $M_{\text{pri}}, M_{\text{sec}} : op \mapsto \text{index in } P_{\text{pri}}.\text{sequence}, P_{\text{sec}}.\text{sequence}$\;
+\For{$i \gets 0$ \KwTo $n_{\text{ops}} - 1$}{
+    $op \gets c_{\text{seq}}[i]$\;
+    \If{$\RandomFloat(0, 1) < 0.10$}{
+        $\text{is\_primary} \gets (\GetJobId(op) \in J_{\text{active}})$\;
+        $(P_{\text{alt}}, M_{\text{alt}}) \gets \mathbf{if}\ \text{is\_primary}\ \mathbf{then}\ (P_{\text{sec}}, M_{\text{sec}})\ \mathbf{else}\ (P_{\text{pri}}, M_{\text{pri}})$\;
+        $idx_{\text{alt}} \gets M_{\text{alt}}[op]$\;
+        $m_{\text{alt}} \gets P_{\text{alt}}.m[idx_{\text{alt}}]$, \quad $w_{\text{alt}} \gets P_{\text{alt}}.w[idx_{\text{alt}}]$\;
+        \If{$m_{\text{alt}} \neq \text{null} \land w_{\text{alt}} \neq \text{null}$}{
+            $c_m[i] \gets m_{\text{alt}}$, \quad $c_w[i] \gets w_{\text{alt}}$\;
+        }
+    }
+}
+\Return $\{ \text{machine\_assignment}: c_m, \text{worker\_assignment}: c_w, \text{operation\_sequence}: c_{\text{seq}} \}$\;
+\end{algorithm}
+
+\end{document}
