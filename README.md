@@ -119,8 +119,6 @@ python report_tables.py
 
 
 ## Pseudocode
-<div align="left">
-
 $$
 \begin{array}{ll}
 \mathbf{Algorithm:} & \mathbf{FeasibilityPreservingCrossover}(P_1, P_2) \\
@@ -139,8 +137,6 @@ $$
 9: & C_2 \leftarrow \mathbf{RepairChromosomeOptimised}(C_2^{\text{raw}}) \\
 10: & \mathbf{return}\; C_1, C_2 \\
 \hline
-
-
 \\
 \mathbf{Function:} & \mathbf{CreateHybridChild}(P_{\text{pri}}, P_{\text{sec}}, J_{\text{active}}) \\
 \hline
@@ -184,5 +180,3 @@ $$
 \hline
 \end{array}
 $$
-
-</div>
