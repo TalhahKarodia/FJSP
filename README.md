@@ -119,9 +119,6 @@ python report_tables.py
 
 
 ## Pseudocode
-
-<div align="left">
-
 $$
 \begin{array}{ll}
 \mathbf{Algorithm:} & \mathbf{FeasibilityPreservingCrossover}(P_1, P_2) \\
@@ -187,5 +184,3 @@ $$
 \hline
 \end{array}
 $$
-
-</div>
