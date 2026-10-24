@@ -108,14 +108,17 @@ python report_tables.py
 
 # Algorithm & Pseudocode
 ## Crossover Mechanics
-**The feasibility_preserving_crossover operator operates via three primary phases:**
+**Phase 1: Localized Temporal Slicing**
+A contiguous spatial window [pt1, pt2] is randomly initialized on Parent 1's operation sequence. The subset of unique jobs executing within this chronological window is extracted into an active_jobs set.
+**Phase 2: Spatial & Synergistic Anchoring**
+Operations corresponding to the active_jobs set are inherited by the offspring at their exact sequence indices. This perfectly preserves both the chronological timing and the primary Machine-Worker assignment synergies of the localized bottleneck.
+**Phase 3: Relative Topological Fill**
+The remaining unallocated sequence indices in the offspring are populated sequentially using the operations from Parent 2, strictly preserving their relative order of appearance to maintain global job precedence.
+**Phase 4: Uniform Synergistic Blending**
+To inject localized genetic diversity, each gene position undergoes a uniform 10% probability check. If triggered, the gene's Machine-Worker allocation pair is swapped with the alternate parent's assignment via an O(1) lookup table, facilitating rapid resource exploration.
+**Phase 5: Feasibility Restoration**
+The resultant offspring is passed through an optimized deterministic repair heuristic (repair_chromosome_optimised) to resolve any residual precedence violations or dual-resource allocation conflicts, guaranteeing strict constraint adherence.
 
-1. **Job Slicing:** A random window $[pt1, pt2]$ is selected from Parent 1's operation sequence. The set of unique Job IDs present in this window is stored in active_jobs.
-
-2. **Primary Sequence & Assignment Transfer:** Operations matching active_jobs are placed in the exact same sequence positions in the child chromosome, preserving their primary parent machine and worker assignments.
-3. **Secondary Fill:** Empty slots are filled sequentially using operations from the secondary parent in their relative order of appearance.
-4. **Uniform Assignment Blending:** For each gene position, a 10% probability step permits swapping Machine-Worker assignment pairs with the alternate parent using $O(1)$ lookup tables.
-5. **Repair Step:** Offspring are processed through repair_chromosome_optimised to fix precedence or allocation conflicts.
 
 
 ## Pseudocode
