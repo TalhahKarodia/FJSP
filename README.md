@@ -119,5 +119,5 @@ python report_tables.py
 
 
 ## Pseudocode
-![images](pseudocode_1.png)
-![images](pseudocode_2.png)
+![pseudocode](images/pseudocode_1.png)
+![images](images/pseudocode_2.png)
