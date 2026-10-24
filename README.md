@@ -138,7 +138,7 @@ $$
 10: & \mathbf{return}\; C_1, C_2 \\
 \hline
 
-\\ \\
+\\
 \mathbf{Function:} & \mathbf{CreateHybridChild}(P_{\text{pri}}, P_{\text{sec}}, J_{\text{active}}) \\
 \hline
 1: & \text{Initialize arrays } c_{\text{seq}}, c_m, c_w \text{ of length } n_{\text{ops}} \text{ filled with } \text{null} \\
