@@ -109,18 +109,23 @@ python report_tables.py
 # Algorithm & Pseudocode
 ## Crossover Mechanics
 **Phase 1: Localized Temporal Slicing**
+
 A contiguous spatial window [pt1, pt2] is randomly initialized on Parent 1's operation sequence. The subset of unique jobs executing within this chronological window is extracted into an active_jobs set.
 
 **Phase 2: Spatial & Synergistic Anchoring**
+
 Operations corresponding to the active_jobs set are inherited by the offspring at their exact sequence indices. This perfectly preserves both the chronological timing and the primary Machine-Worker assignment synergies of the localized bottleneck.
 
 **Phase 3: Relative Topological Fill**
+
 The remaining unallocated sequence indices in the offspring are populated sequentially using the operations from Parent 2, strictly preserving their relative order of appearance to maintain global job precedence.
 
 **Phase 4: Uniform Synergistic Blending**
+
 To inject localized genetic diversity, each gene position undergoes a uniform 10% probability check. If triggered, the gene's Machine-Worker allocation pair is swapped with the alternate parent's assignment via an O(1) lookup table, facilitating rapid resource exploration.
 
 **Phase 5: Feasibility Restoration**
+
 The resultant offspring is passed through an optimized deterministic repair heuristic (repair_chromosome_optimised) to resolve any residual precedence violations or dual-resource allocation conflicts, guaranteeing strict constraint adherence.
 
 
