@@ -25,7 +25,7 @@ PROJECT_ROOT = SCRIPT_DIR.parents[1] if (SCRIPT_DIR.parents[1] / "src").exists()
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from parser.fjssp_w_parser import parse_competition_instance
-from ga.fjssp_w.genetic_algorithm_w import FJSSPW_GA
+from ga.fjssp_w.genetic_algorithm_w_v2 import FJSSPW_GA_V2
 from ga.fjssp_w.uncertainty_sim import (
     create_seeded_uncertainty_vector,
     evaluate_robustness,
@@ -63,7 +63,7 @@ def run_s1_single_seed(args):
 
     with contextlib.redirect_stdout(io.StringIO()):
         instance = parse_competition_instance(path_str)
-        ga = FJSSPW_GA(
+        ga = FJSSPW_GA_V2(
             instance, population_size=pop, generations=gen,
             random_seed=seed, fitness_mode='deterministic',
             balance_weight=balance_w,
@@ -91,7 +91,7 @@ def run_s2_single_seed(args):
     with contextlib.redirect_stdout(io.StringIO()):
         instance = parse_competition_instance(path_str)
         eval_uv = create_seeded_uncertainty_vector(instance['n_workers'], seed=9999)
-        ga = FJSSPW_GA(
+        ga = FJSSPW_GA_V2(
             instance, population_size=pop, generations=gen,
             random_seed=seed, fitness_mode='uncertainty',
             n_scenarios=10, uncertainty_seed=seed + 1000,
