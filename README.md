@@ -79,7 +79,7 @@ Averaged performance statistics across all 30 benchmark instances (30 independen
 
 </details>
 <details>
-Breakdown of mean makespan and improvement percentage of `Proposed_FPC_GA` over `Standard_GA` across 10 benchmark families.
+Breakdown of mean makespan and improvement percentage of Proposed_FPC_GA over Standard_GA across 10 benchmark families.
 <summary><b>Table 2: Algorithm Performance Comparison</b></summary>
 
 | Family Name | Instances | `Proposed_FPC_GA` | `Hybrid_GA` | `Standard_GA` | `PSO` | Best Algorithm | `FPC-GA` vs `Standard GA` (%) |
@@ -101,11 +101,11 @@ Breakdown of mean makespan and improvement percentage of `Proposed_FPC_GA` over 
 Pairwise Statistical Tests & Effect SizesPairwise comparisons using the Wilcoxon signed-rank test and Vargha-Delaney $A_{12}$ effect size against Proposed_FPC_GA ($\alpha = 0.05$)
 <summary><b>Table 3: Statistical Comparison</b></summary>
 
-| Baseline Algorithm | Proposed Mean | Baseline Mean | Per-Instance W / T / L | Wilcoxon W Stat | Raw p-value | Bonferroni p-value | Vargha-Delaney A<sub>12</sub> | Effect Size |
+| Baseline Algorithm | Proposed Mean | Baseline Mean | Per-Instance W/T/L | Wilcoxon W Stat | Raw p-value | Bonferroni p-value | Vargha-Delaney A<sub>12</sub> | Effect Size |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| `PSO` | 1898.0 | 2281.8 | 30 / 0 / 0 | 0.0 | < 0.0001 | < 0.0001 | 0.991 | Large |
-| `Standard_GA` | 1898.0 | 1918.6 | 12 / 12 / 6 | 141.0 | 0.0606 | 0.1817 | 0.647 | Medium |
-| `Hybrid_GA` | 1898.0 | 1903.3 | 12 / 11 / 7 | 193.0 | 0.4280 | 1.0000 | 0.609 | — |
+| `PSO` | 1898.0 | 2281.8 | 30/0/0 | 0.0 | < 0.0001 | < 0.0001 | 0.991 | Large |
+| `Standard_GA` | 1898.0 | 1918.6 | 12/12/6 | 141.0 | 0.0606 | 0.1817 | 0.647 | Medium |
+| `Hybrid_GA` | 1898.0 | 1903.3 | 12/11/7 | 193.0 | 0.4280 | 1.0000 | 0.609 | — |
 
 </details>
 
