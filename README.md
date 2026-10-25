@@ -61,10 +61,19 @@ The proposed `Proposed_FPC_GA` solver was evaluated across 30 standard FJSSP-WU 
 
 ### Key Performance Highlights
 
-**Highest Win Rate:** `Proposed_FPC_GA` achieved the best mean makespan on 17 out of 30 benchmark instances (56.7%), outperforming `Hybrid_GA` (13 wins), `Standard_GA` (0 wins), and `PSO` (0 wins).   
-**Improved Execution Efficiency:** `Proposed_FPC_GA` runs in 1.57s average execution time, making it $2.02\times$ faster than `Standard_GA` (3.17s), $2.12\times$ faster than `Hybrid_GA (3.32s)`, and $5.64\times$ faster than `PSO` (8.86s).   
-**Function Evaluation Reduction:** Requires an average of only 514.2 Function Evaluations (FEVs) per run—a $64\%\text{--}68\%$ reduction compared to `Standard_GA` (1430.0 FEVs), `Hybrid_GA` (1616.7 FEVs), and `PSO` (1530.0 FEVs).   
+**Highest Win Rate:** `Proposed_FPC_GA` achieved the best mean makespan on 17 out of 30 benchmark instances (56.7%), outperforming `Hybrid_GA` (13 wins), `Standard_GA` (0 wins), and `PSO` (0 wins).
+
+**Improved Execution Efficiency:** `Proposed_FPC_GA` runs in 1.57s average execution time, making it $2.02\times$ faster than `Standard_GA` (3.17s), $2.12\times$ faster than `Hybrid_GA (3.32s)`, and $5.64\times$ faster than `PSO` (8.86s).
+
+**Function Evaluation Reduction:** Requires an average of only 514.2 Function Evaluations (FEVs) per run—a $64\%\text{--}68\%$ reduction compared to `Standard_GA` (1430.0 FEVs), `Hybrid_GA` (1616.7 FEVs), and `PSO` (1530.0 FEVs).
+
 **Robustness Under Worker Disruption:** Under Scenario 2 stochastic worker uncertainty, the framework maintains an average degradation ratio, $R = \frac{C_{\max}^{\text{robust}}}{C_{\max}^{\text{nominal}}}$,  of 1.1146 ($\sim 11.46\%$ average degradation).
+
+<details>
+<summary><b>Graph 1: Uncertainty Deterioration Ratio</b></summary>
+
+![deterioration_graph](images/deterioration_ratio.png)
+</details>
 
 <details>
 Averaged performance statistics across all 30 benchmark instances (30 independent runs per instance)
