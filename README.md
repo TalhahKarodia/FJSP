@@ -70,6 +70,12 @@ The proposed `Proposed_FPC_GA` solver was evaluated across 30 standard FJSSP-WU 
 **Robustness Under Worker Disruption:** Under Scenario 2 stochastic worker uncertainty, the framework maintains an average degradation ratio, $R = \frac{C_{\max}^{\text{robust}}}{C_{\max}^{\text{nominal}}}$,  of 1.1146 ($\sim 11.46\%$ average degradation).
 
 <details>
+<summary><b>Graph 1: Uncertainty Deterioration Ratio</b></summary>
+
+![deterioration_graph](images/deterioration_ratio.png)
+</details>
+
+<details>
 Averaged performance statistics across all 30 benchmark instances (30 independent runs per instance)
 <summary><b>Table 1: Overall Performance Summary</b></summary>
 
