@@ -128,6 +128,9 @@ Pairwise Statistical Tests & Effect SizesPairwise comparisons using the Wilcoxon
 ## Repository Layout
 <details>
 <summary><b>Click to view full repository tree</b></summary>
+
+<br>
+
 ```text
 FJSP/                               # Root repository for FJSP framework
 ├── code-archive/                   # Legacy code versions
@@ -161,7 +164,7 @@ FJSP/                               # Root repository for FJSP framework
 │   ├── parser/                     # Problem instance data loaders and parsers
 │   ├── results/                    # Module-level experiment outputs
 │   ├── uncertainty/                # Uncertainty modeling and stochastic simulation components
-│   ├── util/                  
+│   ├── util/                   
 │   └── visualization/          
 ├── .gitignore
 ├── build_competition_package.py
@@ -175,6 +178,7 @@ FJSP/                               # Root repository for FJSP framework
 ├── run_scenario1_parallel_v2.py
 └── run_scenario2_parallel_v2.py
 ```
+
 </details>
 
 ---
