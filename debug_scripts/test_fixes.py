@@ -1,7 +1,7 @@
 import sys, io, contextlib, glob
 sys.path.insert(0, 'src')
 from parser.fjssp_w_parser import parse_competition_instance
-from ga.fjssp_w.genetic_algorithm_w import FJSSPW_GA
+from code_archive.src.ga.genetic_algorithm_w import FJSSPW_GA
 import numpy as np
 
 paths = glob.glob("../FJSSP-W-Competition/instances/fjssp-w/*Fattahi_20*")
