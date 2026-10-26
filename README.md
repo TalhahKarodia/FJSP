@@ -89,10 +89,10 @@ Averaged performance statistics across all 30 benchmark instances (30 independen
 
 | Algorithm | Mean Makespan (C<sub>max</sub>) | Median Makespan | Std Dev | Wins (Mean) | Wins (Best) | Mean Rank | Mean FEV | Mean Runtime (s) |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| Proposed_FPC_GA | 1898.00 | 1209.00 | 2072.20 | 17 | 15 | 1.73 | 514.20 | 1.57 |
-| Hybrid_GA | 1903.30 | 1236.00 | 2050.30 | 13 | 15 | 1.57 | 1616.70 | 3.32 |
-| Standard_GA | 1918.60 | 1265.00 | 2070.00 | 0 | 0 | 2.70 | 1430.00 | 3.17 |
-| PSO | 2281.80 | 1448.50 | 2468.50 | 0 | 0 | 4.00 | 1530.00 | 8.86 |
+| `Proposed_FPC_GA` | 1898.00 | 1209.00 | 2072.20 | 17 | 15 | 1.73 | 514.20 | 1.57 |
+| `Hybrid_GA` | 1903.30 | 1236.00 | 2050.30 | 13 | 15 | 1.57 | 1616.70 | 3.32 |
+| `Standard_GA` | 1918.60 | 1265.00 | 2070.00 | 0 | 0 | 2.70 | 1430.00 | 3.17 |
+| `PSO` | 2281.80 | 1448.50 | 2468.50 | 0 | 0 | 4.00 | 1530.00 | 8.86 |
 
 </details>
 <details>
@@ -102,16 +102,16 @@ Breakdown of mean makespan and improvement percentage of Proposed_FPC_GA over St
 
 | Family Name | Instances | Proposed_FPC_GA | Hybrid_GA | Standard_GA | PSO | Best Algorithm | FPC-GA vs Standard GA (%) |
 | :--- | :---: | :---: | :---: | :---: | :---: | :--- | :---: |
-| Kacem | 2 | 19.48 | 34.73 | 34.88 | 47.02 | Proposed_FPC_GA | +44.15% |
-| Behnke-Geiger | 3 | 255.46 | 306.89 | 308.43 | 344.30 | Proposed_FPC_GA | +17.18% |
-| Fattahi | 2 | 1041.12 | 1143.65 | 1153.12 | 1372.57 | Proposed_FPC_GA | +9.71% |
-| Brandimarte | 3 | 655.41 | 690.59 | 694.44 | 815.84 | Proposed_FPC_GA | +5.62% |
-| Chambers-Barnes | 1 | 1405.47 | 1452.67 | 1464.50 | 1698.67 | Proposed_FPC_GA | +4.03% |
-| Hurink edata | 2 | 362.17 | 365.42 | 368.22 | 434.88 | Proposed_FPC_GA | +1.64% |
-| Hurink rdata | 3 | 4029.60 | 4018.81 | 4054.70 | 4870.80 | Hybrid_GA | +0.62% |
-| Hurink vdata | 3 | 1469.11 | 1460.04 | 1473.87 | 1811.57 | Hybrid_GA | +0.32% |
-| Hurink sdata | 7 | 2325.38 | 2299.05 | 2324.10 | 2733.09 | Hybrid_GA | -0.06% |
-| DPpaulli | 4 | 4295.96 | 4259.28 | 4279.47 | 5096.63 | Hybrid_GA | -0.39% |
+| Kacem | 2 | 19.48 | 34.73 | 34.88 | 47.02 | `Proposed_FPC_GA` | +44.15% |
+| Behnke-Geiger | 3 | 255.46 | 306.89 | 308.43 | 344.30 | `Proposed_FPC_GA` | +17.18% |
+| Fattahi | 2 | 1041.12 | 1143.65 | 1153.12 | 1372.57 | `Proposed_FPC_GA` | +9.71% |
+| Brandimarte | 3 | 655.41 | 690.59 | 694.44 | 815.84 | `Proposed_FPC_GA` | +5.62% |
+| Chambers-Barnes | 1 | 1405.47 | 1452.67 | 1464.50 | 1698.67 | `Proposed_FPC_GA` | +4.03% |
+| Hurink edata | 2 | 362.17 | 365.42 | 368.22 | 434.88 | `Proposed_FPC_GA` | +1.64% |
+| Hurink rdata | 3 | 4029.60 | 4018.81 | 4054.70 | 4870.80 | `Hybrid_GA` | +0.62% |
+| Hurink vdata | 3 | 1469.11 | 1460.04 | 1473.87 | 1811.57 | `Hybrid_GA` | +0.32% |
+| Hurink sdata | 7 | 2325.38 | 2299.05 | 2324.10 | 2733.09 | `Hybrid_GA` | -0.06% |
+| DPpaulli | 4 | 4295.96 | 4259.28 | 4279.47 | 5096.63 | `Hybrid_GA` | -0.39% |
 
 </details>
 
@@ -119,11 +119,11 @@ Breakdown of mean makespan and improvement percentage of Proposed_FPC_GA over St
 Pairwise Statistical Tests & Effect Sizes Pairwise comparisons using the Wilcoxon signed-rank test and Vargha-Delaney $A_{12}$ effect size against Proposed_FPC_GA ($\alpha = 0.05$)
 <summary><b>Table 3: Statistical Comparison</b></summary>
 
-| Baseline Algorithm | Proposed Mean | Baseline Mean | Per-Instance W / T / L | Wilcoxon W Stat | Raw p-value | Bonferroni p-value | Vargha-Delaney A<sub>12</sub> | Effect Size |
-| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| PSO | 1898.00 | 2281.80 | 30 / 0 / 0 | 0.00 | < 0.0001 | < 0.0001 | 0.99 | Large |
-| Standard_GA | 1898.00 | 1918.60 | 12 / 12 / 6 | 141.00 | 0.06 | 0.18 | 0.65 | Medium |
-| Hybrid_GA | 1898.00 | 1903.30 | 12 / 11 / 7 | 193.00 | 0.43 | 1.00 | 0.61 | — |
+| Baseline Algorithm | Proposed Mean | Baseline Mean | Per-Instance W/T/L | Wilcoxon W Stat | Raw p-value  | Bonferroni p-value | Vargha-Delaney A<sub>12</sub> | Effect Size |
+| :---- | :----: | :----: | :----: | :----: | :----: | :----: | :----: | :----: |
+| `PSO` | 1898.00 | 2281.80 | 30/0/0 | 0.00 | < 0.0001 | < 0.0001 | 0.99 | Large |
+| `Standard_GA` | 1898.00 | 1918.60 | 12/12/6 | 141.00 | 0.06 | 0.18 | 0.65 | Medium |
+| `Hybrid_GA` | 1898.00 | 1903.30 | 12/11/7 | 193.00 | 0.43 | 1.00 | 0.61 | — |
 
 </details>
 
