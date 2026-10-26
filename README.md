@@ -68,9 +68,15 @@ The proposed `Proposed_FPC_GA` solver was evaluated across 30 standard FJSSP-WU 
 **Function Evaluation Reduction:** Requires an average of only 514.2 Function Evaluations (FEVs) per run—a $64\%\text{--}68\%$ reduction compared to `Standard_GA` (1430.0 FEVs), `Hybrid_GA` (1616.7 FEVs), and `PSO` (1530.0 FEVs).
 
 **Robustness Under Worker Disruption:** Under Scenario 2 stochastic worker uncertainty, the framework maintains an average degradation ratio, $R = \frac{C_{\max}^{\text{robust}}}{C_{\max}^{\text{nominal}}}$,  of 1.1146 ($\sim 11.46\%$ average degradation).
+### Graphs & Tables
 
 <details>
-<summary><b>Graph 1: Uncertainty Deterioration Ratio</b></summary>
+<summary><b>Graph 1: Mean Runtime For 30 Instances</b></summary>
+
+![mean runtime over 30 instanecs](images/mean_runtime_per_algorithm.jpg)
+</details>
+<details>
+<summary><b>Graph 2: Uncertainty Deterioration Ratio</b></summary>
 
 ![deterioration_graph](images/deterioration_ratio.png)
 </details>
@@ -120,38 +126,61 @@ Pairwise Statistical Tests & Effect SizesPairwise comparisons using the Wilcoxon
 
 ---
 ## Repository Layout
+<details>
+<summary><b>Click to view full repository tree</b></summary>
+
+<br>
 
 ```text
-.
-├── run_all_parallel.py                   # Master orchestrator script
-├── run_scenario1_parallel_v2.py          # Scenario 1 runner (Deterministic parallel execution)
-├── run_scenario2_parallel_v2.py          # Scenario 2 runner (Uncertainty parallel execution)
-├── run_baselines_parallel.py             # Baseline algorithms parallel runner
-├── build_competition_package.py          # Competition package generator
-├── full_analysis.py                      # Full statistical and analysis execution
-├── report_tables.py                      # Report summary table generator
-├── requirements.txt                      # Project dependencies
-├── results/                              # Output directory for benchmarks and submissions
-│   ├── submission/                       # Formatted competition submission outputs
-│   └── summary/                          # Summarized experiment logs and metrics
-└── src/
-    ├── analysis/                         # Statistical evaluation tools
-    │   └── statistical_tests.py          # Hypothesis testing and statistical metrics
-    ├── baselines/                        # Baseline benchmark algorithm implementations
-    │   ├── hybrid_ga.py                  # Hybrid Genetic Algorithm
-    │   ├── pso.py                        # Particle Swarm Optimization baseline
-    │   └── standard_ga.py                # Standard Genetic Algorithm baseline
-    ├── ga/                               # Genetic Algorithm core modules
-    │   ├── fjssp_w/                      # Worker-extended FJSSP components
-    │   │   ├── decoder_w.py              # FJSSP-W schedule decoder
-    │   │   ├── genetic_algorithm_w_v2.py # Core GA solver (contains feasibility crossover)
-    │   │   └── uncertainty_sim.py        # Uncertainty and disruption simulator
-    │   ├── genetic_algorithm.py          # Standard FJSP GA implementation
-    │   └── sanity_check.py               # Chromosome & schedule verification scripts
-    └── parser/                           # Benchmark dataset parsers
-        ├── fjsp_parser.py                # Standard FJSP data parser
-        └── fjssp_w_parser.py             # FJSSP-W instance parser with worker data
+FJSP/                               # Root repository for FJSP framework
+├── code-archive/                   # Legacy code versions
+├── data-sample/               
+├── debug-scripts/              
+├── FJSSP-W-Competition/        
+├── images/                         # Charts, figures, and plots
+├── results/                 
+├── src/                            # Primary source code directory
+│   ├── analysis/               
+│   ├── baselines/                  # Baseline algorithm implementations (GA, PSO, etc.)
+│   │   ├── __init__.py
+│   │   ├── hybrid_ga.py
+│   │   ├── pso.py
+│   │   ├── robust_ga.py
+│   │   └── standard_ga.py
+│   ├── experiments/                # Experiment execution scripts
+│   │   ├── results/                # Sub-directory for experiment-specific output files
+│   │   ├── generate_submissions_v2.py
+│   │   ├── run_baseline.py
+│   │   └── run_fjssp_w_parallel_v2.py
+│   ├── ga/                         # Core Genetic Algorithm logic and schedule decoders
+│   │   ├── fjssp_w/                # Sub-module for FJSSP-W specific variant
+│   │   │   ├── __init__.py
+│   │   │   ├── decoder_w.py
+│   │   │   ├── genetic_algorithm_w_v2.py
+│   │   │   └── uncertainty_sim.py
+│   │   ├── decoder.py
+│   │   ├── genetic_algorithm.py
+│   │   └── sanity_check.py
+│   ├── parser/                     # Problem instance data loaders and parsers
+│   ├── results/                    # Module-level experiment outputs
+│   ├── uncertainty/                # Uncertainty modeling and stochastic simulation components
+│   ├── util/                   
+│   └── visualization/          
+├── .gitignore
+├── build_competition_package.py
+├── full_analysis.py
+├── launch_runner.py
+├── README.md
+├── report_tables.py
+├── requirements.txt
+├── run_all_parallel.py
+├── run_baselines_parallel.py
+├── run_scenario1_parallel_v2.py
+└── run_scenario2_parallel_v2.py
 ```
+
+</details>
+
 ---
 # Requirements & Installation
 Environment
