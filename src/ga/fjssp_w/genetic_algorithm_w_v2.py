@@ -17,7 +17,7 @@ from typing import List, Dict, Tuple, Optional
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '../..'))
 
-from ga.fjssp_w.decoder_w import FJSSPWDecoder
+from ga.fjssp_w.decoder_w_v2 import FJSSPWDecoder_V2
 from ga.fjssp_w.uncertainty_sim import (
     create_seeded_uncertainty_vector,
     simulate_one_scenario,
@@ -63,7 +63,6 @@ class FJSSPW_GA_V2:
         self.greedy_fraction = greedy_fraction
 
         self.uncertainty_vector = None
-        self.scenario_rng = None
         if fitness_mode == 'uncertainty':
             unc_seed = (
                 uncertainty_seed if uncertainty_seed is not None
@@ -72,12 +71,8 @@ class FJSSPW_GA_V2:
             self.uncertainty_vector = create_seeded_uncertainty_vector(
                 instance_data['n_workers'], seed=unc_seed
             )
-            self.scenario_rng = random.Random(
-                scenario_seed if scenario_seed is not None
-                else (random_seed if random_seed is not None else 0)
-            )
 
-        self.decoder = FJSSPWDecoder(instance_data)
+        self.decoder = FJSSPWDecoder_V2(instance_data)
         self.instance_data = instance_data
 
         self.population_size = population_size
@@ -119,40 +114,21 @@ class FJSSPW_GA_V2:
                     pairs, key=lambda p: self.decoder.get_processing_time(op_idx, p[0], p[1])
                 )
 
-    def _get_job_id(self, op_idx: int) -> int:
+    def _get_job_id(self, op_idx: Optional[int]) -> Optional[int]:
         """Safely retrieve job ID for a given operation index."""
         if op_idx is None:
             return None
-        
-        # Check if decoder has method or attribute
-        if hasattr(self.decoder, 'get_job_id'):
-            return self.decoder.get_job_id(op_idx)
-        if hasattr(self.decoder, 'op_to_job'):
-            return self.decoder.op_to_job[op_idx]
-        
-        # Check instance_data structures
-        if 'op_to_job' in self.instance_data:
-            return self.instance_data['op_to_job'][op_idx]
-        if 'op_job_map' in self.instance_data:
-            return self.instance_data['op_job_map'][op_idx]
-            
-        # Build from job operations list if present
-        if not hasattr(self, '_op_to_job_cache'):
-            self._op_to_job_cache = {}
-            jobs_list = self.instance_data.get('jobs') or self.instance_data.get('job_ops') or []
-            for j_id, ops in enumerate(jobs_list):
-                for op in ops:
-                    # Handle op as dict or int
-                    o_idx = op['op_id'] if isinstance(op, dict) else op
-                    self._op_to_job_cache[o_idx] = j_id
+        return self.decoder.op_to_job.get(op_idx, 0)
 
-        return self._op_to_job_cache.get(op_idx, 0)
-
-    
     def initialize_population(self):
         """Seeded initialisation: greedy_fraction greedy + rest random."""
         self.population = []
         self.fitness_values = []
+        self.eval_cache.clear()
+        self.fev_count = 0
+        self.best_fitness = float('inf')
+        self.best_makespan = float('inf')
+        self.best_solution = None
 
         n = self.population_size
         n_greedy = max(1, int(n * self.greedy_fraction))
@@ -170,7 +146,8 @@ class FJSSPW_GA_V2:
             if fitness < self.best_fitness:
                 self.best_fitness = fitness
                 self.best_solution = clone_chromosome(self.population[i])
-                self.best_makespan = fitness
+                sched = self.decoder.decode(self.population[i])
+                self.best_makespan = sched['makespan']
 
     def _hash_chromosome(self, chromosome: Dict) -> Tuple:
         """Hashable key for chromosome memoization."""
@@ -181,7 +158,7 @@ class FJSSPW_GA_V2:
         )
 
     def evaluate(self, chromosome: Dict) -> float:
-        """Evaluate chromosome with memoization cache. FEV count: 1 (deterministic) or n_scenarios."""
+        """Evaluate chromosome with memoization cache."""
         key = self._hash_chromosome(chromosome)
         if key in self.eval_cache:
             return self.eval_cache[key]
@@ -192,10 +169,13 @@ class FJSSPW_GA_V2:
             base = schedule['makespan']
         else:
             self.fev_count += self.n_scenarios
+            # Deterministic scenario RNG derived from chromosome key
+            chrom_seed = hash(key) & 0xffffffff
+            scen_rng = random.Random(chrom_seed)
             total = sum(
                 simulate_one_scenario(
                     chromosome, self.instance_data, self.decoder,
-                    self.uncertainty_vector, self.scenario_rng,
+                    self.uncertainty_vector, scen_rng,
                 )
                 for _ in range(self.n_scenarios)
             )
@@ -220,6 +200,8 @@ class FJSSPW_GA_V2:
         loads = [0.0] * n_workers
         for op_idx in range(len(m_assign)):
             m, w = m_assign[op_idx], w_assign[op_idx]
+            if m is None or w is None:
+                continue
             dur = d[op_idx][m][w]
             if dur > 0:
                 loads[w] += dur
@@ -241,7 +223,7 @@ class FJSSPW_GA_V2:
             best_idx = min(tournament_indices, key=lambda i: self.fitness_values[i])
             selected.append(clone_chromosome(self.population[best_idx]))
         return selected
-    
+
     def repair_chromosome_optimised(self, chromosome: Dict) -> Dict:
         """Repair infeasible assignments using precomputed best pairs."""
         m_assign = chromosome['machine_assignment']
@@ -263,14 +245,16 @@ class FJSSPW_GA_V2:
         self, parent1: Dict, parent2: Dict
     ) -> Tuple[Dict, Dict]:
         """
-        Feasibility Crossover for FJSSP-W:
-        - Combines Two-Point Slice OX with Job-Aware Grouping.
-        - Preserves job precedence inside slice windows.
-        - Inherits paired (Machine, Worker) assignments consistent with sequence origin.
+        Feasibility-Preserving Crossover (FPC) for FJSSP-W.
+        
+        1. Sequence Generation: Job-Aware Slice OX preserves relative job order.
+        2. Assignment Inheritance: Inherits atomic (Machine, Worker) pairs by Operation ID.
+        3. Feasibility Guarantee: Validates (M, W) eligibility per operation.
         """
         n_ops = self.decoder.n_operations
         p1_seq = parent1['operation_sequence']
 
+        # 1. Select slice window on Parent 1 sequence
         pt1 = self.rng.randint(0, n_ops - 2)
         pt2 = self.rng.randint(pt1 + 1, n_ops - 1)
 
@@ -291,52 +275,56 @@ class FJSSPW_GA_V2:
             for i, op in enumerate(pri_seq):
                 if self._get_job_id(op) in active_jobs:
                     c_seq[i] = op
-                    c_m[i] = primary_parent['machine_assignment'][i]
-                    c_w[i] = primary_parent['worker_assignment'][i]
+                    c_m[op] = primary_parent['machine_assignment'][op]
+                    c_w[op] = primary_parent['worker_assignment'][op]
                     copied_ops.add(op)
 
-            # Fill empty slots using Secondary Parent's order & assignments
+            # Fill empty slots using Secondary Parent's relative order
             sec_idx = 0
             for i in range(n_ops):
                 if c_seq[i] is None:
                     while sec_idx < n_ops:
                         op_sec = sec_seq[sec_idx]
-                        sec_pos = sec_idx
                         sec_idx += 1
 
                         if op_sec not in copied_ops:
                             c_seq[i] = op_sec
-                            c_m[i] = secondary_parent['machine_assignment'][sec_pos]
-                            c_w[i] = secondary_parent['worker_assignment'][sec_pos]
+                            c_m[op_sec] = secondary_parent['machine_assignment'][op_sec]
+                            c_w[op_sec] = secondary_parent['worker_assignment'][op_sec]
                             copied_ops.add(op_sec)
                             break
 
-            # Uniform Assignment Blending (10% chance to explore assignment pairs)
-            # Pre-calculate positions of operations in the alternate parent to ensure O(1) lookup
-            pri_op_positions = {op: idx for idx, op in enumerate(pri_seq)}
-            sec_op_positions = {op: idx for idx, op in enumerate(sec_seq)}
-
-            for i, op in enumerate(c_seq):
+            # Uniform Assignment Blending (10% exploration rate)
+            for op in c_seq:
                 if self.rng.random() < 0.10:
-                    # Determine which parent this operation's base assignment came from
                     came_from_primary = self._get_job_id(op) in active_jobs
                     alt_parent = secondary_parent if came_from_primary else primary_parent
-                    alt_positions = sec_op_positions if came_from_primary else pri_op_positions
                     
-                    # Find where this exact operation lives in the alternate parent
-                    alt_idx = alt_positions[op]
-                    alt_m = alt_parent['machine_assignment'][alt_idx]
-                    alt_w = alt_parent['worker_assignment'][alt_idx]
+                    alt_m = alt_parent['machine_assignment'][op]
+                    alt_w = alt_parent['worker_assignment'][op]
                     
+                    # Assign alternate pair if valid for this operation
                     if alt_m is not None and alt_w is not None:
-                        c_m[i], c_w[i] = alt_m, alt_w
+                        if self.decoder.is_feasible_assignment(op, alt_m, alt_w):
+                            c_m[op], c_w[op] = alt_m, alt_w
 
-            return {'machine_assignment': c_m, 'worker_assignment': c_w, 'operation_sequence': c_seq}
+            # Strict Feasibility Fallback (Guarantees valid M-W pair without greedy bias)
+            for op in range(n_ops):
+                m, w = c_m[op], c_w[op]
+                if m is None or w is None or not self.decoder.is_feasible_assignment(op, m, w):
+                    # Pick a random feasible pair if needed
+                    c_m[op], c_w[op] = self.rng.choice(self.feasible_pairs[op])
+
+            return {
+                'machine_assignment': c_m,
+                'worker_assignment': c_w,
+                'operation_sequence': c_seq
+            }
 
         child1 = create_hybrid_child(parent1, parent2, sliced_jobs)
         child2 = create_hybrid_child(parent2, parent1, sliced_jobs)
 
-        return self.repair_chromosome_optimised(child1), self.repair_chromosome_optimised(child2)
+        return child1, child2
 
     def mutation(self, chromosome: Dict) -> Dict:
         """Optimized mutation utilizing shallow cloning and precomputed pairs."""
@@ -380,8 +368,10 @@ class FJSSPW_GA_V2:
                 new_fitness.append(self.fitness_values[idx])
 
             while len(new_population) < self.population_size:
-                p1 = self.rng.choice(selected)
-                p2 = self.rng.choice(selected)
+                if len(selected) >= 2:
+                    p1, p2 = self.rng.sample(selected, 2)
+                else:
+                    p1, p2 = selected[0], selected[0]
 
                 if self.rng.random() < self.crossover_rate:
                     child1, child2 = self.feasibility_preserving_crossover(p1, p2)
@@ -405,18 +395,25 @@ class FJSSPW_GA_V2:
             self.population = new_population
             self.fitness_values = new_fitness
 
-            best_idx = min(range(len(self.fitness_values)),
-                           key=lambda i: self.fitness_values[i])
+            best_idx = min(
+                range(len(self.fitness_values)),
+                key=lambda i: self.fitness_values[i]
+            )
+            
+            # Decode to extract true unpenalized makespan
+            best_sched = self.decoder.decode(self.population[best_idx])
+            curr_makespan = best_sched['makespan']
+
             if self.fitness_values[best_idx] < self.best_fitness:
                 self.best_fitness = self.fitness_values[best_idx]
                 self.best_solution = clone_chromosome(self.population[best_idx])
-                self.best_makespan = self.best_fitness
+                self.best_makespan = curr_makespan
 
-            self.history['best_makespan'].append(min(self.fitness_values))
-            self.history['avg_makespan'].append(
-                sum(self.fitness_values) / len(self.fitness_values)
-            )
-            self.history['worst_makespan'].append(max(self.fitness_values))
+            # History logging using unpenalized makespan metrics
+            self.history['best_makespan'].append(curr_makespan)
+            pop_makespans = [self.decoder.decode(chrom)['makespan'] for chrom in self.population]
+            self.history['avg_makespan'].append(sum(pop_makespans) / len(pop_makespans))
+            self.history['worst_makespan'].append(max(pop_makespans))
 
         return {
             'best_solution': self.best_solution,
