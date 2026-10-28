@@ -1,46 +1,56 @@
 """
-Hybrid GA baseline: standard GA + post-processing local search (2-opt on sequence).
-Compares to Amjad et al. [32]. Fully compatible with shared population orchestrator.
+Memetic Hybrid GA baseline for FJSSP-W.
+Adds a per-generation 2-opt local search on the top-k individuals to
+StandardGA_V2 (topological decoding, shared initial population, FEV limits).
 """
 
-import sys, os, copy
-sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
+import sys
+import os
+from heapq import nsmallest
+from typing import Dict
 
-from baselines.standard_ga_v2 import StandardGA_V2
+sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
+from baselines.standard_ga_v2 import StandardGA_V2, _clone
 
 
 class HybridGA_V2(StandardGA_V2):
-    """Adds post-processing 2-opt local search applied to the best individual after GA evolution."""
-
-    def __init__(self, *args, local_search_k=20, **kwargs):
+    def __init__(self, *args, local_search_k=5, **kwargs):
         super().__init__(*args, **kwargs)
         self.local_search_k = local_search_k
 
-    def _local_search(self, chrom: dict) -> dict:
-        """2-opt sequence swap keeping Operation-ID machine/worker assignments intact."""
-        best = copy.deepcopy(chrom)
-        best_fit = self._evaluate(best)
+    def _local_search(self, chrom: Dict) -> Dict:
+        """2-opt sequence swap; machine/worker assignments are never changed,
+        so their lists/hash parts are shared and computed once."""
+        m_ref = chrom['machine_assignment']
+        w_ref = chrom['worker_assignment']
+        mt = tuple(m_ref)
+        wt = tuple(w_ref)
+
+        best_seq = chrom['operation_sequence']
+        best = chrom
+        best_fit = self._evaluate(best, (tuple(best_seq), mt, wt))
         improved = True
         attempts = 0
-        max_attempts = 30  # cap for neighborhood search
+        max_attempts = 20
+        n = self.n_ops
 
         while improved and attempts < max_attempts and self.fev_count < self.max_fev:
             improved = False
-            for i in range(self.n_ops - 1):
-                for j in range(i + 1, min(i + 5, self.n_ops)):
+            for i in range(n - 1):
+                for j in range(i + 1, min(i + 5, n)):
+                    seq = best_seq[:]
+                    seq[i], seq[j] = seq[j], seq[i]
                     cand = {
-                        'operation_sequence': best['operation_sequence'][:],
-                        'machine_assignment': best['machine_assignment'][:],
-                        'worker_assignment': best['worker_assignment'][:]
+                        'operation_sequence': seq,
+                        'machine_assignment': m_ref,
+                        'worker_assignment': w_ref,
                     }
-                    cand['operation_sequence'][i], cand['operation_sequence'][j] = \
-                        cand['operation_sequence'][j], cand['operation_sequence'][i]
-
-                    cand_fit = self._evaluate(cand)
+                    cand_fit = self._evaluate(cand, (tuple(seq), mt, wt))
                     attempts += 1
 
                     if cand_fit < best_fit:
                         best = cand
+                        best_seq = seq
                         best_fit = cand_fit
                         improved = True
                         break
@@ -48,22 +58,29 @@ class HybridGA_V2(StandardGA_V2):
                     break
         return best
 
-    def evolve(self) -> dict:
-        # Run full standard GA evolution with shared initial population
-        result = super().evolve()
+    def evolve(self) -> Dict:
+        self._init_run()
 
-        # Post-processing local search on the best solution found
-        if self.best_chromosome is not None and self.fev_count < self.max_fev:
-            improved = self._local_search(self.best_chromosome)
-            improved_fit = self._evaluate(improved)
-            if improved_fit < self.best_makespan:
-                self.best_makespan = improved_fit
-                self.best_chromosome = improved
+        # Record initial best before the loop
+        fit = self.fitness
+        bi = min(range(len(fit)), key=fit.__getitem__)
+        self.best_makespan = fit[bi]
+        self.best_chromosome = _clone(self.population[bi])
 
-        return {
-            'best_makespan': self.best_makespan,
-            'best_solution': self.best_chromosome,
-            'fev_count': self.fev_count,
-            'cache_hits': self.cache_hits,
-            'eval_cache_size': len(self.eval_cache),
-        }
+        for _ in range(self.generations):
+            if self.fev_count >= self.max_fev:
+                break
+
+            self._breed()
+
+            fit = self.fitness
+            for idx in nsmallest(self.local_search_k, range(len(fit)), key=fit.__getitem__):
+                if self.fev_count >= self.max_fev:
+                    break
+                improved_ind = self._local_search(self.population[idx])
+                self.population[idx] = improved_ind
+                self.fitness[idx] = self._evaluate(improved_ind)
+
+            self._update_best()
+
+        return self._result()

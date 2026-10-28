@@ -2,15 +2,26 @@
 Discrete PSO baseline for FJSSP-W. Machine+worker+sequence, no uncertainty.
 Compares to Kacem et al. [31] adapted to the FJSSP-W setting.
 
-Updated to enforce topological precedence decoding via FJSSPWDecoder_V2,
-support shared initial population seeding, and respect max_fev limits.
+Topological precedence decoding via FJSSPWDecoder_V2, shared initial
+population seeding, max_fev respected.
+
+Optimised: eligible pairs precomputed (were rebuilt on every mutation), the
+priority sort is done once per decode, no deepcopy, localised inner loop.
 """
 
-import sys, os, copy, random
-from typing import Dict, List, Tuple
+import sys, os, random
+from typing import Dict, List, Tuple, Optional
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
 from ga.fjssp_w.decoder_w_v2 import FJSSPWDecoder_V2
+
+
+def _copy_particle(p: Dict) -> Dict:
+    return {
+        'priority': p['priority'][:],
+        'machines': p['machines'][:],
+        'workers': p['workers'][:],
+    }
 
 
 class DiscretePSO_V2:
@@ -25,6 +36,7 @@ class DiscretePSO_V2:
         random_seed=None,
         initial_population=None,
         max_fev=5_000_000,
+        decoder: Optional[FJSSPWDecoder_V2] = None,
     ):
         self.rng = random.Random(random_seed)
         self.instance = instance_data
@@ -42,59 +54,44 @@ class DiscretePSO_V2:
         self.initial_population = initial_population
         self.max_fev = max_fev
 
-        # External decoder enforcing topological precedence
-        self.decoder = FJSSPWDecoder_V2(instance_data)
+        self.decoder = decoder if decoder is not None else FJSSPWDecoder_V2(instance_data)
+        self._pairs = self.decoder.feasible_pairs
 
         self.fev_count = 0
         self.cache_hits = 0
         self.eval_cache = {}
 
     def _eligible_pairs(self, op_idx: int) -> List[Tuple[int, int]]:
-        pairs = []
-        for m in range(self.n_machines):
-            for w in self.encoding.get_workers_for_operation_on_machine(op_idx, m):
-                pairs.append((m, w))
-        return pairs
+        return self._pairs[op_idx]
 
     def _random_particle(self) -> Dict:
         priority = [self.rng.random() for _ in range(self.n_ops)]
         machines, workers = [], []
         for op in range(self.n_ops):
-            m, w = self.rng.choice(self._eligible_pairs(op))
+            m, w = self.rng.choice(self._pairs[op])
             machines.append(m)
             workers.append(w)
         return {'priority': priority, 'machines': machines, 'workers': workers}
 
-    def _hash_particle(self, particle: Dict) -> Tuple:
-        """
-        Creates a discrete, hashable key from particle priorities and assignments.
-        Mapping priorities to topological sequence rank allows continuous priority
-        vectors that resolve to the same sequence to hit the cache.
-        """
-        seq = tuple(sorted(range(self.n_ops), key=lambda i: particle['priority'][i]))
-        machines = tuple(particle['machines'])
-        workers = tuple(particle['workers'])
-        return (seq, machines, workers)
-
     def _decode(self, particle: Dict) -> float:
-        """Decodes particle to makespan with memoization cache and topological precedence."""
-        key = self._hash_particle(particle)
-        if key in self.eval_cache:
+        """Particle -> makespan, memoised on (sequence rank, machines, workers)."""
+        pr = particle['priority']
+        seq = sorted(range(self.n_ops), key=pr.__getitem__)
+        key = (tuple(seq), tuple(particle['machines']), tuple(particle['workers']))
+        cached = self.eval_cache.get(key)
+        if cached is not None:
             self.cache_hits += 1
-            return self.eval_cache[key]
+            return cached
 
         if self.fev_count >= self.max_fev:
             return float('inf')
 
         self.fev_count += 1
-        seq = sorted(range(self.n_ops), key=lambda i: particle['priority'][i])
-        chrom = {
+        makespan = self.decoder.decode({
             'operation_sequence': seq,
             'machine_assignment': particle['machines'],
             'worker_assignment': particle['workers'],
-        }
-        res = self.decoder.decode(chrom)
-        makespan = res['makespan']
+        })['makespan']
         self.eval_cache[key] = makespan
         return makespan
 
@@ -103,49 +100,59 @@ class DiscretePSO_V2:
         self.cache_hits = 0
         self.fev_count = 0
 
-        # Load shared initial population if provided by orchestrator; otherwise generate random
         if self.initial_population is not None:
-            swarm = copy.deepcopy(self.initial_population)
+            swarm = [_copy_particle(p) for p in self.initial_population]
         else:
             swarm = [self._random_particle() for _ in range(self.swarm_size)]
 
         fits = [self._decode(p) for p in swarm]
 
-        pbest = [copy.deepcopy(p) for p in swarm]
+        pbest = [_copy_particle(p) for p in swarm]
         pbest_fit = list(fits)
 
-        gi = min(range(len(fits)), key=lambda i: fits[i])
-        gbest = copy.deepcopy(swarm[gi])
+        gi = min(range(len(fits)), key=fits.__getitem__)
+        gbest = _copy_particle(swarm[gi])
         gbest_fit = fits[gi]
 
-        velocities = [{'priority': [0.0] * self.n_ops} for _ in range(len(swarm))]
+        n = self.n_ops
+        velocities = [[0.0] * n for _ in range(len(swarm))]
+        rnd = self.rng.random
+        choice = self.rng.choice
+        pairs = self._pairs
+        iw, c1, c2 = self.w, self.c1, self.c2
 
         for _ in range(self.iterations):
             if self.fev_count >= self.max_fev:
                 break
 
             for i in range(len(swarm)):
-                v = velocities[i]['priority']
                 p = swarm[i]
-                r1, r2 = self.rng.random(), self.rng.random()
+                v = velocities[i]
+                pp = p['priority']
+                pm = p['machines']
+                pw = p['workers']
+                pb = pbest[i]['priority']
+                gb = gbest['priority']
+                r1, r2 = rnd(), rnd()
 
-                for j in range(self.n_ops):
-                    v[j] = (self.w * v[j]
-                            + self.c1 * r1 * (pbest[i]['priority'][j] - p['priority'][j])
-                            + self.c2 * r2 * (gbest['priority'][j] - p['priority'][j]))
-                    p['priority'][j] = max(0.0, min(1.0, p['priority'][j] + v[j]))
-                    if self.rng.random() < 0.15:
-                        m, w = self.rng.choice(self._eligible_pairs(j))
-                        p['machines'][j] = m
-                        p['workers'][j] = w
+                for j in range(n):
+                    x = pp[j]
+                    vj = iw * v[j] + c1 * r1 * (pb[j] - x) + c2 * r2 * (gb[j] - x)
+                    v[j] = vj
+                    x += vj
+                    pp[j] = 0.0 if x < 0.0 else (1.0 if x > 1.0 else x)
+                    if rnd() < 0.15:
+                        m, wk = choice(pairs[j])
+                        pm[j] = m
+                        pw[j] = wk
 
                 f = self._decode(p)
                 fits[i] = f
                 if f < pbest_fit[i]:
-                    pbest[i] = copy.deepcopy(p)
+                    pbest[i] = _copy_particle(p)
                     pbest_fit[i] = f
                 if f < gbest_fit:
-                    gbest = copy.deepcopy(p)
+                    gbest = _copy_particle(p)
                     gbest_fit = f
 
         return {
