@@ -1,208 +1,79 @@
-"""
-Standard GA baseline for FJSSP-W: machine+worker+sequence GA, no uncertainty.
-Uses assigned worker durations and enforces worker availability.
-
-Compares to Driss et al. [10] adapted to the FJSSP-W setting.
-
-Includes evaluation memoization caching (`eval_cache`) to prevent redundant decodes
-and establish fair performance benchmarking against FPC-GA.
-"""
-
-import sys, os, copy, random
-from typing import Dict, Tuple
-
+import sys, os, copy
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', '..'))
+from baselines.standard_ga_v2 import StandardGA_V2
 
 
-class StandardGA_V2:
-    def __init__(
-        self,
-        instance_data,
-        population_size=30,
-        generations=50,
-        crossover_rate=0.8,
-        mutation_rate=0.1,
-        tournament_size=3,
-        elite_size=2,
-        random_seed=None,
-    ):
-        self.rng = random.Random(random_seed)
-        self.instance = instance_data
-        self.n_ops = instance_data['n_operations']
-        self.n_machines = instance_data['n_machines']
-        self.n_workers = instance_data['n_workers']
-        self.d = instance_data['durations']
-        self.encoding = instance_data['encoding']
-        self.js = instance_data['job_sequence']
-        self.op_to_job = {op: job for op, job in enumerate(self.js)}
+class HybridGA_V2(StandardGA_V2):
+    """
+    Fixed Memetic Hybrid GA: Integrates 2-opt local search per generation 
+    on top k individuals. Fully compatible with StandardGA_V2 and the shared population.
+    """
+    def __init__(self, *args, local_search_k=5, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.local_search_k = local_search_k
 
-        self.pop_size = population_size
-        self.generations = generations
-        self.crossover_rate = crossover_rate
-        self.mutation_rate = mutation_rate
-        self.tournament_size = tournament_size
-        self.elite_size = elite_size
+    def _local_search(self, chrom: dict) -> dict:
+        """2-opt sequence swap keeping Operation-ID machine/worker assignments intact."""
+        best = copy.deepcopy(chrom)
+        best_fit = self._evaluate(best)
+        improved = True
+        attempts = 0
+        max_attempts = 20
 
-        self.population = []
-        self.fitness = []
-        self.best_makespan = float('inf')
-        self.best_chromosome = None
-        self.fev_count = 0
-        self.cache_hits = 0
-        self.eval_cache = {}
+        while improved and attempts < max_attempts and self.fev_count < self.max_fev:
+            improved = False
+            for i in range(self.n_ops - 1):
+                for j in range(i + 1, min(i + 5, self.n_ops)):
+                    cand = {
+                        'operation_sequence': best['operation_sequence'][:],
+                        'machine_assignment': best['machine_assignment'][:],
+                        'worker_assignment': best['worker_assignment'][:]
+                    }
+                    cand['operation_sequence'][i], cand['operation_sequence'][j] = \
+                        cand['operation_sequence'][j], cand['operation_sequence'][i]
+                    
+                    cand_fit = self._evaluate(cand)
+                    attempts += 1
 
-    def _hash_chromosome(self, chrom: Dict) -> Tuple:
-        """Create hashable key for chromosome caching."""
-        return (
-            tuple(chrom.get('operation_sequence', [])),
-            tuple(chrom.get('machine_assignment', [])),
-            tuple(chrom.get('worker_assignment', [])),
-        )
+                    if cand_fit < best_fit:
+                        best = cand
+                        best_fit = cand_fit
+                        improved = True
+                        break
+                if improved:
+                    break
+        return best
 
-    def _eligible_workers(self, op_idx, m):
-        return self.encoding.get_workers_for_operation_on_machine(op_idx, m)
-
-    def _random_chromosome(self):
-        machines = []
-        workers = []
-        for op in range(self.n_ops):
-            pairs = []
-            for m in range(self.n_machines):
-                for w in self._eligible_workers(op, m):
-                    pairs.append((m, w))
-            m, w = self.rng.choice(pairs)
-            machines.append(m)
-            workers.append(w)
-        seq = list(range(self.n_ops))
-        self.rng.shuffle(seq)
-        return {
-            'machine_assignment': machines,
-            'worker_assignment': workers,
-            'operation_sequence': seq,
-        }
-
-    def _decode(self, chrom):
-        s = [0] * self.n_ops
-        e = [0] * self.n_ops
-        m_end = [0] * self.n_machines
-        w_end = [0] * self.n_workers
-        job_last = {}
-
-        for op_idx in chrom['operation_sequence']:
-            m = chrom['machine_assignment'][op_idx]
-            w = chrom['worker_assignment'][op_idx]
-            if not self.encoding.is_possible(op_idx, m, w):
-                raise ValueError(f"Infeasible: op {op_idx} m {m} w {w}")
-            job = self.op_to_job.get(op_idx, 0)
-            dur = self.d[op_idx][m][w]
-            start = max(m_end[m], w_end[w], job_last.get(job, 0))
-            end = start + dur
-            s[op_idx] = start
-            e[op_idx] = end
-            m_end[m] = end
-            w_end[w] = end
-            job_last[job] = end
-        return max(e) if e else 0
-
-    def _evaluate(self, chrom):
-        """Evaluates chromosome with memoization cache."""
-        key = self._hash_chromosome(chrom)
-        if key in self.eval_cache:
-            self.cache_hits += 1
-            return self.eval_cache[key]
-
-        self.fev_count += 1
-        fit = self._decode(chrom)
-        self.eval_cache[key] = fit
-        return fit
-
-    def _selection(self):
-        selected = []
-        for _ in range(self.pop_size):
-            idxs = self.rng.sample(range(self.pop_size), self.tournament_size)
-            best = min(idxs, key=lambda i: self.fitness[i])
-            selected.append(copy.deepcopy(self.population[best]))
-        return selected
-
-    def _crossover(self, p1, p2):
-        n = self.n_ops
-        c1 = {'machine_assignment': [None] * n,
-              'worker_assignment': [None] * n,
-              'operation_sequence': [None] * n}
-        c2 = {'machine_assignment': [None] * n,
-              'worker_assignment': [None] * n,
-              'operation_sequence': [None] * n}
-
-        # Step 1: order crossover on sequence
-        pt1 = self.rng.randint(0, n - 2)
-        pt2 = self.rng.randint(pt1 + 1, n - 1)
-        for i in range(pt1, pt2 + 1):
-            c1['operation_sequence'][i] = p1['operation_sequence'][i]
-            c2['operation_sequence'][i] = p2['operation_sequence'][i]
-
-        # Step 2: fill remaining positions with donor's ops
-        for child, donor in [(c1, p2), (c2, p1)]:
-            for i in range(n):
-                op = donor['operation_sequence'][i]
-                if op not in child['operation_sequence']:
-                    for j in range(n):
-                        if child['operation_sequence'][j] is None:
-                            child['operation_sequence'][j] = op
-                            break
-
-        # Step 3: inherit assignments per-op (indexed by op, not position)
-        for op in range(n):
-            if self.rng.random() < 0.5:
-                c1['machine_assignment'][op] = p1['machine_assignment'][op]
-                c1['worker_assignment'][op] = p1['worker_assignment'][op]
-                c2['machine_assignment'][op] = p2['machine_assignment'][op]
-                c2['worker_assignment'][op] = p2['worker_assignment'][op]
-            else:
-                c1['machine_assignment'][op] = p2['machine_assignment'][op]
-                c1['worker_assignment'][op] = p2['worker_assignment'][op]
-                c2['machine_assignment'][op] = p1['machine_assignment'][op]
-                c2['worker_assignment'][op] = p1['worker_assignment'][op]
-
-        return c1, c2
-
-    def _mutation(self, chrom):
-        c = copy.deepcopy(chrom)
-        if self.rng.random() < self.mutation_rate:
-            i, j = self.rng.sample(range(self.n_ops), 2)
-            c['operation_sequence'][i], c['operation_sequence'][j] = \
-                c['operation_sequence'][j], c['operation_sequence'][i]
-        if self.rng.random() < self.mutation_rate:
-            op_idx = self.rng.randint(0, self.n_ops - 1)
-            pairs = []
-            for m in range(self.n_machines):
-                for w in self._eligible_workers(op_idx, m):
-                    pairs.append((m, w))
-            if pairs:
-                m, w = self.rng.choice(pairs)
-                c['machine_assignment'][op_idx] = m
-                c['worker_assignment'][op_idx] = w
-        return c
-
-    def evolve(self):
+    def evolve(self) -> dict:
         self.eval_cache.clear()
         self.fev_count = 0
         self.cache_hits = 0
         self.best_makespan = float('inf')
         self.best_chromosome = None
 
-        self.population = [self._random_chromosome() for _ in range(self.pop_size)]
+        # 1. Load shared initial population if provided by orchestrator; otherwise generate random
+        if self.initial_population is not None:
+            self.population = copy.deepcopy(self.initial_population)
+        else:
+            self.population = [self._random_chromosome() for _ in range(self.pop_size)]
+
         self.fitness = [self._evaluate(c) for c in self.population]
 
         for _ in range(self.generations):
+            if self.fev_count >= self.max_fev:
+                break
+
+            # 2. Standard GA Step (Selection, Crossover, Mutation, Elitism)
             selected = self._selection()
             new_pop = []
             new_fit = []
+            
             elites = sorted(range(len(self.fitness)), key=lambda i: self.fitness[i])[:self.elite_size]
             for idx in elites:
                 new_pop.append(copy.deepcopy(self.population[idx]))
                 new_fit.append(self.fitness[idx])
 
-            while len(new_pop) < self.pop_size:
+            while len(new_pop) < self.pop_size and self.fev_count < self.max_fev:
                 p1 = self.rng.choice(selected)
                 p2 = self.rng.choice(selected)
                 if self.rng.random() < self.crossover_rate:
@@ -211,13 +82,27 @@ class StandardGA_V2:
                     c1, c2 = copy.deepcopy(p1), copy.deepcopy(p2)
                 c1 = self._mutation(c1)
                 c2 = self._mutation(c2)
-                new_pop.append(c1); new_fit.append(self._evaluate(c1))
-                if len(new_pop) < self.pop_size:
-                    new_pop.append(c2); new_fit.append(self._evaluate(c2))
+                
+                new_pop.append(c1)
+                new_fit.append(self._evaluate(c1))
+                if len(new_pop) < self.pop_size and self.fev_count < self.max_fev:
+                    new_pop.append(c2)
+                    new_fit.append(self._evaluate(c2))
 
             self.population = new_pop
             self.fitness = new_fit
 
+            # 3. Interleave Per-Generation Local Search on top k individuals
+            sorted_indices = sorted(range(len(self.population)), key=lambda idx: self.fitness[idx])
+            for idx in sorted_indices[:self.local_search_k]:
+                if self.fev_count >= self.max_fev:
+                    break
+                improved_ind = self._local_search(self.population[idx])
+                improved_fit = self._evaluate(improved_ind)
+                self.population[idx] = improved_ind
+                self.fitness[idx] = improved_fit
+
+            # 4. Update best overall solution
             bi = min(range(len(self.fitness)), key=lambda i: self.fitness[i])
             if self.fitness[bi] < self.best_makespan:
                 self.best_makespan = self.fitness[bi]
