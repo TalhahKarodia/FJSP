@@ -31,31 +31,49 @@ An optimization framework for solving the Flexible Job Shop Scheduling Problem w
 ---
 # Algorithm & Pseudocode
 ## Crossover Mechanics
-**Phase 1: Localized Temporal Slicing**
+**Phase 1: Localized Slice Extraction**
+A contiguous window $[pt_1, pt_2]$ is drawn at random on Parent 1's operation
+sequence, and the set of job IDs appearing in it forms the active set
+$J_{\text{active}}$. If the window covers every job in the instance, the slice is
+discarded and $J_{\text{active}}$ is instead a random subset of $\lfloor J/2 \rfloor$
+jobs (at least one), so that the offspring always inherits from both parents.
 
-A contiguous spatial window `[pt1, pt2]` is randomly initialized on Parent 1's operation sequence. The subset of unique jobs executing within this chronological window is extracted into an `active_jobs` set.
+**Phase 2: Sequence & Resource Anchoring**
+Operations belonging to $J_{\text{active}}$ are copied into the offspring sequence at
+their exact positions from Parent 1, together with Parent 1's machine–worker pair
+for each of those operations.
 
-**Phase 2: Spatial & Synergistic Anchoring**
+**Phase 3: Relative Fill from Parent 2**
+The remaining positions are filled from left to right with Parent 2's remaining
+operations, in their original relative order of appearance. Each operation keeps
+the machine–worker pair it had in Parent 2 (origin-paired inheritance). Because
+the operation sequence is a priority list and the decoder releases an operation only
+after its job predecessor has finished, every permutation is valid, so no
+sequence repair is needed.
 
-Operations corresponding to the `active_jobs` set are inherited by the offspring at their exact sequence indices. This preserves both the chronological timing and the primary `Machine-Worker` assignment synergies of the localized bottleneck.
+**Phase 4: Feasibility-Guided Assignment Exchange**
+Each operation independently has a 10% probability of having its inherited
+machine–worker pair replaced by the pair the other parent holds for the same
+operation. The replacement is accepted only if it passes an $O(1)$ set-membership
+check against that operation's feasible pairs.
 
-**Phase 3: Relative Topological Fill**
+**Phase 5: Resource Feasibility Safeguard**
+The offspring is passed through `repair_chromosome_optimised`. Any missing or
+infeasible machine–worker pair is replaced by the operation's precomputed fastest
+feasible pair ($\mathcal{B}_{op}$). Since both parents are feasible and Phase 4
+is checked, this step rarely triggers and acts as a safeguard.
 
-The remaining unallocated sequence indices in the offspring are populated sequentially using the operations from Parent 2, strictly preserving their relative order of appearance to maintain global job precedence.
-
-**Phase 4: Uniform Synergistic Blending**
-
-To inject localized genetic diversity, each gene position undergoes a uniform 10% probability check. If triggered, the gene's `Machine-Worker` allocation pair is swapped with the alternate parent's assignment via an `O(1)` lookup table, facilitating rapid resource exploration.
-
-**Phase 5: Feasibility Restoration**
-
-The resultant offspring is passed through an optimized deterministic repair heuristic (`repair_chromosome_optimised`) to resolve any residual precedence violations or dual-resource allocation conflicts, guaranteeing strict constraint adherence.
+**Operator-level notes**
+The second offspring is built symmetrically with the parents' roles exchanged,
+using the same $J_{\text{active}}$. Crossover is applied with probability 0.8;
+otherwise the parents are passed unchanged to mutation.
 
 
 
 ## Pseudocode
-![pseudocode](images/pseudocode_1.png)
-![images](images/pseudocode_2.png)
+![pseudocode](images/pseudocode_01.png)
+![images](images/pseudocode_02.png)
+![images](images/pseudocode_03.png)
 
 ---
 ## Experimental Results & Benchmark Evaluation

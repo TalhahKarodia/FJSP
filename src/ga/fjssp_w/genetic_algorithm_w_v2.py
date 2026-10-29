@@ -1,23 +1,12 @@
-"""
-Optimized Genetic Algorithm for FJSSP-W.
-
-Features & Optimizations:
-- Fast chromosome shallow cloning (replacing deepcopy)
-- Feasibility Preserving Crossover (Combines two-point slice OX with SOTA job precedence preservation & origin-paired assignments)
-- Precomputed feasible (machine, worker) pairs, sets, and fastest pairs per operation
-- Fast repair mechanism using cached best pairs
-- Evaluation memoization cache for fitness calculations
-- Worker load variation penalty calculated with flat arrays
-"""
-
 import sys
 import os
 import random
+from heapq import nsmallest
 from typing import List, Dict, Tuple, Optional
 
 sys.path.append(os.path.join(os.path.dirname(__file__), '../..'))
 
-from ga.fjssp_w.decoder_w import FJSSPWDecoder
+from ga.fjssp_w.decoder_w_v2 import FJSSPWDecoder_V2
 from ga.fjssp_w.uncertainty_sim import (
     create_seeded_uncertainty_vector,
     simulate_one_scenario,
@@ -25,7 +14,7 @@ from ga.fjssp_w.uncertainty_sim import (
 
 
 def clone_chromosome(chrom: Dict) -> Dict:
-    """Shallow clone of chromosome lists."""
+    """Fast shallow clone of chromosome lists."""
     return {
         'machine_assignment': chrom['machine_assignment'][:],
         'worker_assignment': chrom['worker_assignment'][:],
@@ -34,7 +23,7 @@ def clone_chromosome(chrom: Dict) -> Dict:
 
 
 class FJSSPW_GA_V2:
-    """Genetic Algorithm for FJSSP-W."""
+    """Optimized Genetic Algorithm for FJSSP-W."""
 
     def __init__(
         self,
@@ -52,18 +41,30 @@ class FJSSPW_GA_V2:
         scenario_seed: Optional[int] = None,
         balance_weight: float = 0.0,
         greedy_fraction: float = 0.5,
+        initial_population: Optional[List[Dict]] = None,
+        max_fev: int = 5_000_000,
+        decoder: Optional[FJSSPWDecoder_V2] = None,
+        gene_mutation_rate: float = 0.04,
+        fast_pair_fraction: Optional[float] = 0.10,
     ):
+        # gene_mutation_rate: per-operation chance of re-picking its (machine,
+        #   worker) pair in mutation(). 0 disables it.
+        # fast_pair_fraction: re-picked pairs come from this fraction of the
+        #   operation's fastest feasible pairs (None = any feasible pair).
+        # Setting gene_mutation_rate=0 and fast_pair_fraction=None restores the
+        # previous mutation behaviour exactly.
         self.rng = random.Random(random_seed)
         self.seed = random_seed
 
         self.fitness_mode = fitness_mode
         self.n_scenarios = n_scenarios
         self.fev_count = 0
+        self.max_fev = max_fev
         self.balance_weight = balance_weight
         self.greedy_fraction = greedy_fraction
+        self.initial_population = initial_population
 
         self.uncertainty_vector = None
-        self.scenario_rng = None
         if fitness_mode == 'uncertainty':
             unc_seed = (
                 uncertainty_seed if uncertainty_seed is not None
@@ -72,13 +73,13 @@ class FJSSPW_GA_V2:
             self.uncertainty_vector = create_seeded_uncertainty_vector(
                 instance_data['n_workers'], seed=unc_seed
             )
-            self.scenario_rng = random.Random(
-                scenario_seed if scenario_seed is not None
-                else (random_seed if random_seed is not None else 0)
-            )
 
-        self.decoder = FJSSPWDecoder(instance_data)
+        # A prebuilt decoder can be shared to avoid rebuilding its tables
+        self.decoder = decoder if decoder is not None else FJSSPWDecoder_V2(instance_data)
         self.instance_data = instance_data
+
+        self.op_to_job = self.decoder.op_to_job
+        self.unique_jobs = list(set(self.op_to_job.values())) if self.op_to_job else []
 
         self.population_size = population_size
         self.generations = generations
@@ -99,103 +100,104 @@ class FJSSPW_GA_V2:
             'worst_makespan': [],
         }
 
-        # Memoization cache for chromosome evaluation
+        # Memoization: fitness, and (deterministic mode) raw makespan
         self.eval_cache = {}
+        self.mk_cache = {}
 
-        # Precompute feasible pairs, sets, and best processing time pairs
+        # Precomputed feasible pairs (shared lists from the decoder, same order)
         self.feasible_pairs = {}
         self.feasible_pairs_set = {}
         self.best_feasible_pair = {}
-
+        dur = self.decoder.durations
         for op_idx in range(self.decoder.n_operations):
-            pairs = []
-            for m in range(self.decoder.n_machines):
-                for w in self.decoder.get_eligible_workers(op_idx, m):
-                    pairs.append((m, w))
+            pairs = self.decoder.feasible_pairs[op_idx]
             self.feasible_pairs[op_idx] = pairs
             self.feasible_pairs_set[op_idx] = set(pairs)
             if pairs:
-                self.best_feasible_pair[op_idx] = min(
-                    pairs, key=lambda p: self.decoder.get_processing_time(op_idx, p[0], p[1])
-                )
+                d = dur[op_idx]
+                self.best_feasible_pair[op_idx] = min(pairs, key=lambda p: d[p[0]][p[1]])
 
-    def _get_job_id(self, op_idx: int) -> int:
-        """Safely retrieve job ID for a given operation index."""
-        if op_idx is None:
-            return None
-        
-        # Check if decoder has method or attribute
-        if hasattr(self.decoder, 'get_job_id'):
-            return self.decoder.get_job_id(op_idx)
-        if hasattr(self.decoder, 'op_to_job'):
-            return self.decoder.op_to_job[op_idx]
-        
-        # Check instance_data structures
-        if 'op_to_job' in self.instance_data:
-            return self.instance_data['op_to_job'][op_idx]
-        if 'op_job_map' in self.instance_data:
-            return self.instance_data['op_job_map'][op_idx]
-            
-        # Build from job operations list if present
-        if not hasattr(self, '_op_to_job_cache'):
-            self._op_to_job_cache = {}
-            jobs_list = self.instance_data.get('jobs') or self.instance_data.get('job_ops') or []
-            for j_id, ops in enumerate(jobs_list):
-                for op in ops:
-                    # Handle op as dict or int
-                    o_idx = op['op_id'] if isinstance(op, dict) else op
-                    self._op_to_job_cache[o_idx] = j_id
+        # Fastest-pairs pools used by mutation (durations > 0, ascending)
+        self.gene_mutation_rate = gene_mutation_rate
+        self.fast_pair_fraction = fast_pair_fraction
+        self.mutation_pairs = {}
+        for op_idx in range(self.decoder.n_operations):
+            if fast_pair_fraction:
+                lst = self.decoder._sorted_feasible(op_idx)
+                k = max(3, int(len(lst) * fast_pair_fraction))
+                pool = [(m, w) for _, m, w in lst[:k]]
+                self.mutation_pairs[op_idx] = pool or self.feasible_pairs[op_idx]
+            else:
+                self.mutation_pairs[op_idx] = self.feasible_pairs[op_idx]
 
-        return self._op_to_job_cache.get(op_idx, 0)
-
-    
+    # ------------------------------------------------------------------
     def initialize_population(self):
-        """Seeded initialisation: greedy_fraction greedy + rest random."""
         self.population = []
         self.fitness_values = []
+        self.eval_cache.clear()
+        self.mk_cache.clear()
+        self.fev_count = 0
+        self.best_fitness = float('inf')
+        self.best_makespan = float('inf')
+        self.best_solution = None
 
-        n = self.population_size
-        n_greedy = max(1, int(n * self.greedy_fraction))
-
-        for i in range(n):
-            if i < n_greedy:
-                chromosome = self.decoder.create_greedy_chromosome(self.rng)
-            else:
-                chromosome = self.decoder.create_random_chromosome(self.rng)
-            self.population.append(chromosome)
-            fitness = self.evaluate(chromosome)
-            self.fitness_values.append(fitness)
+        if self.initial_population is not None:
+            for chrom in self.initial_population:
+                c = clone_chromosome(chrom)
+                self.population.append(c)
+                self.fitness_values.append(self.evaluate(c))
+        else:
+            n = self.population_size
+            n_greedy = max(1, int(n * self.greedy_fraction))
+            for i in range(n):
+                if i < n_greedy:
+                    chromosome = self.decoder.create_greedy_chromosome(self.rng)
+                else:
+                    chromosome = self.decoder.create_random_chromosome(self.rng)
+                self.population.append(chromosome)
+                self.fitness_values.append(self.evaluate(chromosome))
 
         for i, fitness in enumerate(self.fitness_values):
             if fitness < self.best_fitness:
                 self.best_fitness = fitness
                 self.best_solution = clone_chromosome(self.population[i])
-                self.best_makespan = fitness
+                self.best_makespan = self._makespan(self.population[i])
 
     def _hash_chromosome(self, chromosome: Dict) -> Tuple:
-        """Hashable key for chromosome memoization."""
         return (
             tuple(chromosome['operation_sequence']),
             tuple(chromosome['machine_assignment']),
             tuple(chromosome['worker_assignment']),
         )
 
+    def _makespan(self, chromosome: Dict) -> float:
+        """Deterministic makespan, from cache when available (no re-decode)."""
+        mk = self.mk_cache.get(self._hash_chromosome(chromosome))
+        if mk is None:
+            mk = self.decoder.decode_makespan(chromosome)
+        return mk
+
     def evaluate(self, chromosome: Dict) -> float:
-        """Evaluate chromosome with memoization cache. FEV count: 1 (deterministic) or n_scenarios."""
         key = self._hash_chromosome(chromosome)
-        if key in self.eval_cache:
-            return self.eval_cache[key]
+        cached = self.eval_cache.get(key)
+        if cached is not None:
+            return cached
+
+        if self.fev_count >= self.max_fev:
+            return float('inf')
 
         if self.fitness_mode == 'deterministic':
             self.fev_count += 1
-            schedule = self.decoder.decode(chromosome)
-            base = schedule['makespan']
+            base = self.decoder.decode_makespan(chromosome)
+            self.mk_cache[key] = base
         else:
             self.fev_count += self.n_scenarios
+            chrom_seed = hash(key) & 0xffffffff
+            scen_rng = random.Random(chrom_seed)
             total = sum(
                 simulate_one_scenario(
                     chromosome, self.instance_data, self.decoder,
-                    self.uncertainty_vector, self.scenario_rng,
+                    self.uncertainty_vector, scen_rng,
                 )
                 for _ in range(self.n_scenarios)
             )
@@ -211,8 +213,7 @@ class FJSSPW_GA_V2:
         return fit
 
     def _worker_balance_cv(self, chromosome: Dict) -> float:
-        """Calculate worker load variation coefficient using indexed array."""
-        d = self.instance_data['durations']
+        d = self.decoder.durations
         m_assign = chromosome['machine_assignment']
         w_assign = chromosome['worker_assignment']
         n_workers = self.decoder.n_workers
@@ -220,6 +221,8 @@ class FJSSPW_GA_V2:
         loads = [0.0] * n_workers
         for op_idx in range(len(m_assign)):
             m, w = m_assign[op_idx], w_assign[op_idx]
+            if m is None or w is None:
+                continue
             dur = d[op_idx][m][w]
             if dur > 0:
                 loads[w] += dur
@@ -231,19 +234,23 @@ class FJSSPW_GA_V2:
         variance = sum((v - mean_load) ** 2 for v in loads) / n_workers
         return (variance ** 0.5) / mean_load
 
+    # ------------------------------------------------------------------
     def selection(self) -> List[Dict]:
-        """Tournament selection returning shallow clones."""
+        """Tournament selection. Returns references: parents are never mutated
+        in place (crossover builds new lists, mutation clones first)."""
+        pop = self.population
+        fit = self.fitness_values
+        n = self.population_size
+        k = self.tournament_size
+        sample = self.rng.sample
         selected = []
-        for _ in range(self.population_size):
-            tournament_indices = self.rng.sample(
-                range(self.population_size), self.tournament_size
-            )
-            best_idx = min(tournament_indices, key=lambda i: self.fitness_values[i])
-            selected.append(clone_chromosome(self.population[best_idx]))
+        for _ in range(n):
+            idxs = sample(range(n), k)
+            best_idx = min(idxs, key=fit.__getitem__)
+            selected.append(pop[best_idx])
         return selected
-    
+
     def repair_chromosome_optimised(self, chromosome: Dict) -> Dict:
-        """Repair infeasible assignments using precomputed best pairs."""
         m_assign = chromosome['machine_assignment']
         w_assign = chromosome['worker_assignment']
 
@@ -263,83 +270,99 @@ class FJSSPW_GA_V2:
         self, parent1: Dict, parent2: Dict
     ) -> Tuple[Dict, Dict]:
         """
-        Feasibility Crossover for FJSSP-W:
-        - Combines Two-Point Slice OX with Job-Aware Grouping.
-        - Preserves job precedence inside slice windows.
-        - Inherits paired (Machine, Worker) assignments consistent with sequence origin.
+            Enhanced Job-Aware POX Crossover for FJSSP-W:
+            - Two-Point Slice Windowing: Identifies co-scheduled job clusters in Parent 1.
+            - POX Sequence Building: Active-job operations keep their Parent 1 positions; remaining slots are filled in Parent 2's relative order.
+            - Origin-Paired Inheritance: Keeps (Machine, Worker) choices bound together per operation ID.
+            - Feasibility-Guided Blending: Safely explores alternative parent assignments using precomputed sets.
         """
         n_ops = self.decoder.n_operations
         p1_seq = parent1['operation_sequence']
 
+        # 1. Two-Point Slice Windowing (Extracts active job clusters from P1)
         pt1 = self.rng.randint(0, n_ops - 2)
         pt2 = self.rng.randint(pt1 + 1, n_ops - 1)
+        
+        slice_ops = p1_seq[pt1:pt2 + 1]
+        sliced_jobs = {self._get_job_id(op) for op in slice_ops if op is not None}
 
-        slice_ops_p1 = set(p1_seq[pt1:pt2 + 1])
-        sliced_jobs = {self._get_job_id(op) for op in slice_ops_p1 if op is not None}
+        # Fallback safeguard if slice contains all or no jobs
+        if 'n_jobs' in self.instance_data:
+            total_jobs = self.instance_data['n_jobs']
+        else:
+            total_jobs = len({self._get_job_id(op) for op in range(n_ops)})
 
-        def create_hybrid_child(primary_parent, secondary_parent, active_jobs):
+        if not sliced_jobs or len(sliced_jobs) >= total_jobs:
+            all_jobs_list = list(range(total_jobs))
+            k = max(1, total_jobs // 2)
+            sliced_jobs = set(self.rng.sample(all_jobs_list, k))
+
+        def create_job_aware_child(primary_parent: Dict, secondary_parent: Dict, active_jobs: set) -> Dict:
             pri_seq = primary_parent['operation_sequence']
             sec_seq = secondary_parent['operation_sequence']
+
+            pri_m = primary_parent['machine_assignment']
+            pri_w = primary_parent['worker_assignment']
+            sec_m = secondary_parent['machine_assignment']
+            sec_w = secondary_parent['worker_assignment']
 
             c_seq = [None] * n_ops
             c_m = [None] * n_ops
             c_w = [None] * n_ops
 
-            copied_ops = set()
-
-            # Copy operations of selected jobs from Primary Parent at exact positions
+            # 2. Sequence Construction via POX
+            # Step A: Copy active job operations at exact sequence positions from Primary Parent
+            active_ops_set = set()
             for i, op in enumerate(pri_seq):
                 if self._get_job_id(op) in active_jobs:
                     c_seq[i] = op
-                    c_m[i] = primary_parent['machine_assignment'][i]
-                    c_w[i] = primary_parent['worker_assignment'][i]
-                    copied_ops.add(op)
+                    active_ops_set.add(op)
 
-            # Fill empty slots using Secondary Parent's order & assignments
+            # Step B: Fill remaining sequence slots using Secondary Parent's relative order
             sec_idx = 0
             for i in range(n_ops):
                 if c_seq[i] is None:
-                    while sec_idx < n_ops:
-                        op_sec = sec_seq[sec_idx]
-                        sec_pos = sec_idx
+                    while sec_idx < n_ops and sec_seq[sec_idx] in active_ops_set:
+                        sec_idx += 1
+                    if sec_idx < n_ops:
+                        c_seq[i] = sec_seq[sec_idx]
                         sec_idx += 1
 
-                        if op_sec not in copied_ops:
-                            c_seq[i] = op_sec
-                            c_m[i] = secondary_parent['machine_assignment'][sec_pos]
-                            c_w[i] = secondary_parent['worker_assignment'][sec_pos]
-                            copied_ops.add(op_sec)
-                            break
+            # 3. Origin-Paired Assignment Inheritance & Blending (Indexed by Operation ID `op`)
+            for op in range(n_ops):
+                job_id = self._get_job_id(op)
 
-            # Uniform Assignment Blending (10% chance to explore assignment pairs)
-            # Pre-calculate positions of operations in the alternate parent to ensure O(1) lookup
-            pri_op_positions = {op: idx for idx, op in enumerate(pri_seq)}
-            sec_op_positions = {op: idx for idx, op in enumerate(sec_seq)}
+                # Inherit intact (Machine, Worker) pair from the job's originating parent
+                if job_id in active_jobs:
+                    c_m[op], c_w[op] = pri_m[op], pri_w[op]
+                    alt_m, alt_w = sec_m[op], sec_w[op]
+                else:
+                    c_m[op], c_w[op] = sec_m[op], sec_w[op]
+                    alt_m, alt_w = pri_m[op], pri_w[op]
 
-            for i, op in enumerate(c_seq):
+                # 4. Feasibility-Guided Assignment Blending (10% exploration chance)
                 if self.rng.random() < 0.10:
-                    # Determine which parent this operation's base assignment came from
-                    came_from_primary = self._get_job_id(op) in active_jobs
-                    alt_parent = secondary_parent if came_from_primary else primary_parent
-                    alt_positions = sec_op_positions if came_from_primary else pri_op_positions
-                    
-                    # Find where this exact operation lives in the alternate parent
-                    alt_idx = alt_positions[op]
-                    alt_m = alt_parent['machine_assignment'][alt_idx]
-                    alt_w = alt_parent['worker_assignment'][alt_idx]
-                    
-                    if alt_m is not None and alt_w is not None:
-                        c_m[i], c_w[i] = alt_m, alt_w
+                    # Only swap if the alternative parent's pair is verified feasible
+                    if (alt_m, alt_w) in self.feasible_pairs_set[op]:
+                        c_m[op], c_w[op] = alt_m, alt_w
 
-            return {'machine_assignment': c_m, 'worker_assignment': c_w, 'operation_sequence': c_seq}
+            child = {
+                'operation_sequence': c_seq,
+                'machine_assignment': c_m,
+                'worker_assignment': c_w,
+            }
+            return self.repair_chromosome_optimised(child)
 
-        child1 = create_hybrid_child(parent1, parent2, sliced_jobs)
-        child2 = create_hybrid_child(parent2, parent1, sliced_jobs)
+        child1 = create_job_aware_child(parent1, parent2, sliced_jobs)
+        child2 = create_job_aware_child(parent2, parent1, sliced_jobs)
 
-        return self.repair_chromosome_optimised(child1), self.repair_chromosome_optimised(child2)
-
+        return child1, child2
+    
+    def _get_job_id(self, op: int) -> int:
+        """Helper to map an operation index to its corresponding job ID."""
+        return self.op_to_job[op]
+    
     def mutation(self, chromosome: Dict) -> Dict:
-        """Optimized mutation utilizing shallow cloning and precomputed pairs."""
         child = clone_chromosome(chromosome)
         n_ops = self.decoder.n_operations
 
@@ -348,46 +371,54 @@ class FJSSPW_GA_V2:
             seq = child['operation_sequence']
             seq[i], seq[j] = seq[j], seq[i]
 
-        if self.rng.random() < self.mutation_rate:
+        ma = child['machine_assignment']
+        wa = child['worker_assignment']
+        rnd = self.rng.random
+        choice = self.rng.choice
+        pools = self.mutation_pairs
+
+        if rnd() < self.mutation_rate:
             op_idx = self.rng.randint(0, n_ops - 1)
-            feasible_pairs = self.feasible_pairs[op_idx]
-            if feasible_pairs:
-                cur_pair = (child['machine_assignment'][op_idx], child['worker_assignment'][op_idx])
-                other_pairs = [p for p in feasible_pairs if p != cur_pair]
-                if other_pairs:
-                    new_m, new_w = self.rng.choice(other_pairs)
-                    child['machine_assignment'][op_idx] = new_m
-                    child['worker_assignment'][op_idx] = new_w
+            pool = pools[op_idx]
+            if pool:
+                ma[op_idx], wa[op_idx] = choice(pool)
+
+        g = self.gene_mutation_rate
+        if g > 0:
+            for op_idx in range(n_ops):
+                if rnd() < g:
+                    ma[op_idx], wa[op_idx] = choice(pools[op_idx])
 
         return child
 
+    # ------------------------------------------------------------------
     def evolve(self) -> Dict:
-        """Main evolutionary optimization loop."""
         self.initialize_population()
+        fit_get = None
 
         for generation in range(self.generations):
-            selected = self.selection()
+            if self.fev_count >= self.max_fev:
+                break
 
+            selected = self.selection()
             new_population = []
             new_fitness = []
 
-            sorted_indices = sorted(
-                range(len(self.fitness_values)),
-                key=lambda i: self.fitness_values[i]
-            )
-            for idx in sorted_indices[:self.elite_size]:
+            fv = self.fitness_values
+            for idx in nsmallest(self.elite_size, range(len(fv)), key=fv.__getitem__):
                 new_population.append(clone_chromosome(self.population[idx]))
-                new_fitness.append(self.fitness_values[idx])
+                new_fitness.append(fv[idx])
 
-            while len(new_population) < self.population_size:
-                p1 = self.rng.choice(selected)
-                p2 = self.rng.choice(selected)
+            while len(new_population) < self.population_size and self.fev_count < self.max_fev:
+                if len(selected) >= 2:
+                    p1, p2 = self.rng.sample(selected, 2)
+                else:
+                    p1, p2 = selected[0], selected[0]
 
                 if self.rng.random() < self.crossover_rate:
                     child1, child2 = self.feasibility_preserving_crossover(p1, p2)
                 else:
-                    child1 = clone_chromosome(p1)
-                    child2 = clone_chromosome(p2)
+                    child1, child2 = p1, p2  # mutation() clones
 
                 child1 = self.mutation(child1)
                 child2 = self.mutation(child2)
@@ -398,25 +429,22 @@ class FJSSPW_GA_V2:
                 new_population.append(child1)
                 new_fitness.append(f1)
 
-                if len(new_population) < self.population_size:
+                if len(new_population) < self.population_size and self.fev_count < self.max_fev:
                     new_population.append(child2)
                     new_fitness.append(f2)
 
             self.population = new_population
             self.fitness_values = new_fitness
 
-            best_idx = min(range(len(self.fitness_values)),
-                           key=lambda i: self.fitness_values[i])
-            if self.fitness_values[best_idx] < self.best_fitness:
-                self.best_fitness = self.fitness_values[best_idx]
-                self.best_solution = clone_chromosome(self.population[best_idx])
-                self.best_makespan = self.best_fitness
+            best_idx = min(range(len(new_fitness)), key=new_fitness.__getitem__)
+            curr_makespan = self._makespan(self.population[best_idx])
 
-            self.history['best_makespan'].append(min(self.fitness_values))
-            self.history['avg_makespan'].append(
-                sum(self.fitness_values) / len(self.fitness_values)
-            )
-            self.history['worst_makespan'].append(max(self.fitness_values))
+            if new_fitness[best_idx] < self.best_fitness:
+                self.best_fitness = new_fitness[best_idx]
+                self.best_solution = clone_chromosome(self.population[best_idx])
+                self.best_makespan = curr_makespan
+
+            self.history['best_makespan'].append(curr_makespan)
 
         return {
             'best_solution': self.best_solution,
@@ -426,7 +454,6 @@ class FJSSPW_GA_V2:
         }
 
     def get_best_schedule(self) -> Dict:
-        """Decode and return the best schedule found."""
         if self.best_solution is None:
             return None
         return self.decoder.decode(self.best_solution)
