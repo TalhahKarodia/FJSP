@@ -270,11 +270,11 @@ class FJSSPW_GA_V2:
         self, parent1: Dict, parent2: Dict
     ) -> Tuple[Dict, Dict]:
         """
-        Enhanced Job-Aware POX Crossover for FJSSP-W:
-        - Two-Point Slice Windowing: Identifies co-scheduled job clusters in Parent 1.
-        - POX Sequence Building: Preserves 100% operation precedence feasibility without repair.
-        - Origin-Paired Inheritance: Keeps (Machine, Worker) choices bound together per operation ID.
-        - Feasibility-Guided Blending: Safely explores alternative parent assignments using precomputed sets.
+            Enhanced Job-Aware POX Crossover for FJSSP-W:
+            - Two-Point Slice Windowing: Identifies co-scheduled job clusters in Parent 1.
+            - POX Sequence Building: Active-job operations keep their Parent 1 positions; remaining slots are filled in Parent 2's relative order.
+            - Origin-Paired Inheritance: Keeps (Machine, Worker) choices bound together per operation ID.
+            - Feasibility-Guided Blending: Safely explores alternative parent assignments using precomputed sets.
         """
         n_ops = self.decoder.n_operations
         p1_seq = parent1['operation_sequence']
@@ -357,6 +357,11 @@ class FJSSPW_GA_V2:
         child2 = create_job_aware_child(parent2, parent1, sliced_jobs)
 
         return child1, child2
+    
+    def _get_job_id(self, op: int) -> int:
+        """Helper to map an operation index to its corresponding job ID."""
+        return self.op_to_job[op]
+    
     def mutation(self, chromosome: Dict) -> Dict:
         child = clone_chromosome(chromosome)
         n_ops = self.decoder.n_operations
