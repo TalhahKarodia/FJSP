@@ -32,6 +32,7 @@ An optimization framework for solving the Flexible Job Shop Scheduling Problem w
 # Algorithm & Pseudocode
 ## Crossover Mechanics
 **Phase 1: Localized Slice Extraction**
+
 A contiguous window $[pt_1, pt_2]$ is drawn at random on Parent 1's operation
 sequence, and the set of job IDs appearing in it forms the active set
 $J_{\text{active}}$. If the window covers every job in the instance, the slice is
@@ -39,11 +40,13 @@ discarded and $J_{\text{active}}$ is instead a random subset of $\lfloor J/2 \rf
 jobs (at least one), so that the offspring always inherits from both parents.
 
 **Phase 2: Sequence & Resource Anchoring**
+
 Operations belonging to $J_{\text{active}}$ are copied into the offspring sequence at
 their exact positions from Parent 1, together with Parent 1's machine–worker pair
 for each of those operations.
 
 **Phase 3: Relative Fill from Parent 2**
+
 The remaining positions are filled from left to right with Parent 2's remaining
 operations, in their original relative order of appearance. Each operation keeps
 the machine–worker pair it had in Parent 2 (origin-paired inheritance). Because
@@ -52,18 +55,21 @@ after its job predecessor has finished, every permutation is valid, so no
 sequence repair is needed.
 
 **Phase 4: Feasibility-Guided Assignment Exchange**
+
 Each operation independently has a 10% probability of having its inherited
 machine–worker pair replaced by the pair the other parent holds for the same
 operation. The replacement is accepted only if it passes an $O(1)$ set-membership
 check against that operation's feasible pairs.
 
 **Phase 5: Resource Feasibility Safeguard**
+
 The offspring is passed through `repair_chromosome_optimised`. Any missing or
 infeasible machine–worker pair is replaced by the operation's precomputed fastest
 feasible pair ($\mathcal{B}_{op}$). Since both parents are feasible and Phase 4
 is checked, this step rarely triggers and acts as a safeguard.
 
 **Operator-level notes**
+
 The second offspring is built symmetrically with the parents' roles exchanged,
 using the same $J_{\text{active}}$. Crossover is applied with probability 0.8;
 otherwise the parents are passed unchanged to mutation.
