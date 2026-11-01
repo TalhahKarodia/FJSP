@@ -87,70 +87,61 @@ The proposed `Proposed_FPC_GA` solver was evaluated across 30 standard FJSSP-WU 
 
 ### Key Performance Highlights
 
-**Highest Win Rate:** `Proposed_FPC_GA` achieved the best mean makespan on 17 out of 30 benchmark instances (56.7%), outperforming `Hybrid_GA` (13 wins), `Standard_GA` (0 wins), and `PSO` (0 wins).
+* **Highest Win Rate:** `Proposed_FPC_GA` achieved the best mean makespan on **16 out of 30** benchmark instances (**53.3%**), outperforming `Hybrid_GA` (13 wins), `Standard_GA` (1 win), and `PSO` (0 wins)[cite: 1].
+* **Improved Execution Efficiency:** `Proposed_FPC_GA` executes in **0.41s** average execution time, making it **$46.32\times$ faster** than `Hybrid_GA` (18.99s) while delivering superior overall solution quality[cite: 1, 9].
+* **Function Evaluation Efficiency:** Requires an average of **1,374.94** Function Evaluations (FEVs) per run—a **$97.8\%$ reduction** compared to `Hybrid_GA` (63,773.67 FEVs) and a **$10.1\%$ reduction** compared to `PSO` (1,529.66 FEVs)[cite: 8].
+* **Robustness Under Worker Disruption:** Under Scenario 2 stochastic worker uncertainty, the framework maintains an average degradation ratio, $R = \frac{C_{\max}^{\text{robust}}}{C_{\max}^{\text{nominal}}}$, of **1.1032** (**$\sim 10.32\%$ average degradation**) across all 30 test instances[cite: 5, 7].
 
-**Improved Execution Efficiency:** `Proposed_FPC_GA` runs in 1.57s average execution time, making it $2.02\times$ faster than `Standard_GA` (3.17s), $2.12\times$ faster than `Hybrid_GA (3.32s)`, and $5.64\times$ faster than `PSO` (8.86s).
+---
 
-**Function Evaluation Reduction:** Requires an average of only 514.2 Function Evaluations (FEVs) per run—a $64\%\text{--}68\%$ reduction compared to `Standard_GA` (1430.0 FEVs), `Hybrid_GA` (1616.7 FEVs), and `PSO` (1530.0 FEVs).
-
-**Robustness Under Worker Disruption:** Under Scenario 2 stochastic worker uncertainty, the framework maintains an average degradation ratio, $R = \frac{C_{\max}^{\text{robust}}}{C_{\max}^{\text{nominal}}}$,  of 1.1146 ($\sim 11.46\%$ average degradation).
 ### Graphs & Tables
 
-<details>
-<summary><b>Graph 1: Mean Runtime For 30 Instances</b></summary>
+### Graph 1: Mean Runtime For 30 Instances
 
 ![mean runtime over 30 instanecs](images/mean_runtime.png)
-</details>
-<details>
-<summary><b>Graph 2: Uncertainty Deterioration Ratio</b></summary>
+
+### Graph 2: Uncertainty Deterioration Ratio</b></summary>
 
 ![deterioration_graph](images/deterioration_ration.png)
-</details>
 
-<details>
-Averaged performance statistics across all 30 benchmark instances (30 independent runs per instance)
-<summary><b>Table 1: Overall Performance Summary</b></summary>
+### Table 1: Overall Performance Summary
 
-| Algorithm | Mean Makespan (C<sub>max</sub>) | Median Makespan | Std Dev | Wins (Mean) | Wins (Best) | Mean Rank | Mean FEV | Mean Runtime (s) |
+Averaged performance statistics across all 30 benchmark instances (30 independent runs per instance)[cite: 1, 8]:
+
+| Algorithm | Mean Makespan ($C_{\max}$) | Median Makespan | Std Dev | Wins (Mean) | Wins (Best) | Mean Rank | Mean FEV | Mean Runtime (s) |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
-| `Proposed_FPC_GA` | 1898.00 | 1209.00 | 2072.20 | 17 | 15 | 1.73 | 514.20 | 1.57 |
-| `Hybrid_GA` | 1903.30 | 1236.00 | 2050.30 | 13 | 15 | 1.57 | 1616.70 | 3.32 |
-| `Standard_GA` | 1918.60 | 1265.00 | 2070.00 | 0 | 0 | 2.70 | 1430.00 | 3.17 |
-| `PSO` | 2281.80 | 1448.50 | 2468.50 | 0 | 0 | 4.00 | 1530.00 | 8.86 |
+| `Proposed_FPC_GA` | **3,214.30** | **1,799.50** | **3,490.30** | **16** | **16** | **1.50** | 1,374.94 | 0.41 |
+| `Hybrid_GA` | 3,250.60 | 1,809.00 | 3,566.10 | 13 | 14 | 1.60 | 63,773.67 | 18.99 |
+| `Standard_GA` | 3,465.10 | 1,907.00 | 3,780.30 | 1 | 0 | 2.90 | **727.51** | **0.18** |
+| `PSO` | 4,187.30 | 2,462.50 | 4,507.20 | 0 | 0 | 4.00 | 1,529.66 | 0.39 |
 
-</details>
-<details>
-Breakdown of mean makespan and improvement percentage of Proposed_FPC_GA over Standard_GA across 10 benchmark families.
-<summary><b>Table 2: Algorithm Performance Comparison</b></summary>
 
+#### Table 2: Algorithm Performance Comparison
+
+Breakdown of mean makespan and improvement percentage of `Proposed_FPC_GA` over `Standard_GA` across 10 benchmark families[cite: 8]:
 
 | Family Name | Instances | Proposed_FPC_GA | Hybrid_GA | Standard_GA | PSO | Best Algorithm | FPC-GA vs Standard GA (%) |
 | :--- | :---: | :---: | :---: | :---: | :---: | :--- | :---: |
-| Kacem | 2 | 19.48 | 34.73 | 34.88 | 47.02 | `Proposed_FPC_GA` | +44.15% |
-| Behnke-Geiger | 3 | 255.46 | 306.89 | 308.43 | 344.30 | `Proposed_FPC_GA` | +17.18% |
-| Fattahi | 2 | 1041.12 | 1143.65 | 1153.12 | 1372.57 | `Proposed_FPC_GA` | +9.71% |
-| Brandimarte | 3 | 655.41 | 690.59 | 694.44 | 815.84 | `Proposed_FPC_GA` | +5.62% |
-| Chambers-Barnes | 1 | 1405.47 | 1452.67 | 1464.50 | 1698.67 | `Proposed_FPC_GA` | +4.03% |
-| Hurink edata | 2 | 362.17 | 365.42 | 368.22 | 434.88 | `Proposed_FPC_GA` | +1.64% |
-| Hurink rdata | 3 | 4029.60 | 4018.81 | 4054.70 | 4870.80 | `Hybrid_GA` | +0.62% |
-| Hurink vdata | 3 | 1469.11 | 1460.04 | 1473.87 | 1811.57 | `Hybrid_GA` | +0.32% |
-| Hurink sdata | 7 | 2325.38 | 2299.05 | 2324.10 | 2733.09 | `Hybrid_GA` | -0.06% |
-| DPpaulli | 4 | 4295.96 | 4259.28 | 4279.47 | 5096.63 | `Hybrid_GA` | -0.39% |
+| Kacem | 2 | 19.73 | 21.72 | 21.80 | 35.40 | `Proposed_FPC_GA` | +9.48% |
+| Behnke-Geiger | 3 | 314.66 | 361.79 | 384.56 | 523.00 | `Proposed_FPC_GA` | +18.18% |
+| Hurink edata | 2 | 494.95 | 479.42 | 505.98 | 600.75 | `Hybrid_GA` | +2.18% |
+| Brandimarte | 3 | 1,041.54 | 1,008.50 | 1,097.29 | 1,449.11 | `Hybrid_GA` | +5.08% |
+| Fattahi | 2 | 1,318.58 | 1,300.95 | 1,353.47 | 1,751.33 | `Hybrid_GA` | +2.58% |
+| Hurink vdata | 3 | 2,130.18 | 2,218.41 | 2,322.99 | 3,025.53 | `Proposed_FPC_GA` | +8.30% |
+| Chambers-Barnes | 1 | 2,607.87 | 2,603.17 | 2,827.83 | 3,289.97 | `Hybrid_GA` | +7.78% |
+| Hurink sdata | 7 | 3,906.20 | 3,912.60 | 4,189.43 | 4,914.36 | `Proposed_FPC_GA` | +6.76% |
+| Hurink rdata | 3 | 5,564.08 | 5,676.34 | 6,129.13 | 7,503.01 | `Proposed_FPC_GA` | +9.22% |
+| DPpaulli | 4 | 8,914.93 | 9,031.97 | 9,558.74 | 11,412.71 | `Proposed_FPC_GA` | +6.74% |
 
-</details>
+#### Table 3: Statistical Comparison
 
-<details>
-Pairwise Statistical Tests & Effect Sizes Pairwise comparisons using the Wilcoxon signed-rank test and Vargha-Delaney $A_{12}$ effect size against Proposed_FPC_GA ($\alpha = 0.05$)
-<summary><b>Table 3: Statistical Comparison</b></summary>
+Pairwise comparisons using the Wilcoxon signed-rank test and Vargha-Delaney $A_{12}$ effect size against `Proposed_FPC_GA` ($\alpha = 0.05$)[cite: 2]:
 
-| Baseline Algorithm | Proposed Mean | Baseline Mean | Per-Instance W/T/L | Wilcoxon W Stat | Raw p-value  | Bonferroni p-value | Vargha-Delaney A<sub>12</sub> | Effect Size |
+| Baseline Algorithm | Proposed Mean | Baseline Mean | Per-Instance W/T/L | Wilcoxon W Stat | Raw p-value | Bonferroni p-value | Vargha-Delaney A<sub>12</sub> | Effect Size |
 | :---- | :----: | :----: | :----: | :----: | :----: | :----: | :----: | :----: |
-| `PSO` | 1898.00 | 2281.80 | 30/0/0 | 0.00 | < 0.0001 | < 0.0001 | 0.99 | Large |
-| `Standard_GA` | 1898.00 | 1918.60 | 12/12/6 | 141.00 | 0.06 | 0.18 | 0.65 | Medium |
-| `Hybrid_GA` | 1898.00 | 1903.30 | 12/11/7 | 193.00 | 0.43 | 1.00 | 0.61 | — |
-
-</details>
-
+| `PSO` | 3,214.30 | 4,187.30 | 30/0/0 | 0.00 | < 0.0001 | < 0.0001 | 0.985 | Large |
+| `Standard_GA` | 3,214.30 | 3,465.10 | 22/7/1 | 1.00 | < 0.0001 | < 0.0001 | 0.759 | Large |
+| `Hybrid_GA` | 3,214.30 | 3,250.60 | 10/16/4 | 187.00 | 0.3599 | 1.0000 | 0.552 | Negligible |
 ---
 ## Repository Layout
 <details>
