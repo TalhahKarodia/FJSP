@@ -87,10 +87,10 @@ The proposed `Proposed_FPC_GA` solver was evaluated across 30 standard FJSSP-WU 
 
 ### Key Performance Highlights
 
-* **Highest Win Rate:** `Proposed_FPC_GA` achieved the best mean makespan on **16 out of 30** benchmark instances (**53.3%**), outperforming `Hybrid_GA` (13 wins), `Standard_GA` (1 win), and `PSO` (0 wins)[cite: 1].
-* **Improved Execution Efficiency:** `Proposed_FPC_GA` executes in **0.41s** average execution time, making it **$46.32\times$ faster** than `Hybrid_GA` (18.99s) while delivering superior overall solution quality[cite: 1, 9].
-* **Function Evaluation Efficiency:** Requires an average of **1,374.94** Function Evaluations (FEVs) per run—a **$97.8\%$ reduction** compared to `Hybrid_GA` (63,773.67 FEVs) and a **$10.1\%$ reduction** compared to `PSO` (1,529.66 FEVs)[cite: 8].
-* **Robustness Under Worker Disruption:** Under Scenario 2 stochastic worker uncertainty, the framework maintains an average degradation ratio, $R = \frac{C_{\max}^{\text{robust}}}{C_{\max}^{\text{nominal}}}$, of **1.1032** (**$\sim 10.32\%$ average degradation**) across all 30 test instances[cite: 5, 7].
+* **Highest Win Rate:** `Proposed_FPC_GA` achieved the best mean makespan on **16 out of 30** benchmark instances (**53.3%**), outperforming `Hybrid_GA` (13 wins), `Standard_GA` (1 win), and `PSO` (0 wins).
+* **Improved Execution Efficiency:** `Proposed_FPC_GA` executes in **0.41s** average execution time, making it **$46.32\times$ faster** than `Hybrid_GA` (18.99s) while delivering superior overall solution quality.
+* **Function Evaluation Efficiency:** Requires an average of **1,374.94** Function Evaluations (FEVs) per run—a **$97.8\%$ reduction** compared to `Hybrid_GA` (63,773.67 FEVs) and a **$10.1\%$ reduction** compared to `PSO` (1,529.66 FEVs).
+* **Robustness Under Worker Disruption:** Under Scenario 2 stochastic worker uncertainty, the framework maintains an average degradation ratio, $R = \frac{C_{\max}^{\text{robust}}}{C_{\max}^{\text{nominal}}}$, of **1.1032** (**$\sim 10.32\%$ average degradation**) across all 30 test instances.
 
 ---
 
@@ -106,7 +106,7 @@ The proposed `Proposed_FPC_GA` solver was evaluated across 30 standard FJSSP-WU 
 
 ### Table 1: Overall Performance Summary
 
-Averaged performance statistics across all 30 benchmark instances (30 independent runs per instance)[cite: 1, 8]:
+Averaged performance statistics across all 30 benchmark instances (30 independent runs per instance):
 
 | Algorithm | Mean Makespan ($C_{\max}$) | Median Makespan | Std Dev | Wins (Mean) | Wins (Best) | Mean Rank | Mean FEV | Mean Runtime (s) |
 | :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: | :---: |
@@ -118,7 +118,7 @@ Averaged performance statistics across all 30 benchmark instances (30 independen
 
 #### Table 2: Algorithm Performance Comparison
 
-Breakdown of mean makespan and improvement percentage of `Proposed_FPC_GA` over `Standard_GA` across 10 benchmark families[cite: 8]:
+Breakdown of mean makespan and improvement percentage of `Proposed_FPC_GA` over `Standard_GA` across 10 benchmark families:
 
 | Family Name | Instances | Proposed_FPC_GA | Hybrid_GA | Standard_GA | PSO | Best Algorithm | FPC-GA vs Standard GA (%) |
 | :--- | :---: | :---: | :---: | :---: | :---: | :--- | :---: |
@@ -135,7 +135,7 @@ Breakdown of mean makespan and improvement percentage of `Proposed_FPC_GA` over 
 
 #### Table 3: Statistical Comparison
 
-Pairwise comparisons using the Wilcoxon signed-rank test and Vargha-Delaney $A_{12}$ effect size against `Proposed_FPC_GA` ($\alpha = 0.05$)[cite: 2]:
+Pairwise comparisons using the Wilcoxon signed-rank test and Vargha-Delaney $A_{12}$ effect size against `Proposed_FPC_GA` ($\alpha = 0.05$):
 
 | Baseline Algorithm | Proposed Mean | Baseline Mean | Per-Instance W/T/L | Wilcoxon W Stat | Raw p-value | Bonferroni p-value | Vargha-Delaney A<sub>12</sub> | Effect Size |
 | :---- | :----: | :----: | :----: | :----: | :----: | :----: | :----: | :----: |
